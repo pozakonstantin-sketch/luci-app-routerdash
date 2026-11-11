@@ -67,6 +67,12 @@ header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px
 .btn.danger:hover{border-color:var(--err);color:var(--err)}
 .btn.mini{padding:3px 9px;font-size:11.5px;border-radius:6px}
 .btn:disabled{opacity:.45;cursor:default}
+.btn.power{padding:9px 16px;font-size:13px;font-weight:600;letter-spacing:.2px;
+  border:1px solid rgba(255,95,86,.55);color:#ff9a94;
+  background:linear-gradient(180deg,rgba(255,95,86,.18),rgba(255,95,86,.07));
+  box-shadow:0 6px 20px rgba(255,95,86,.14)}
+.btn.power:hover{border-color:var(--err);color:#fff;background:linear-gradient(180deg,#ff6f66,#e0443d)}
+#powerBar{display:flex;justify-content:flex-end;padding:10px 20px 0}
 
 nav{display:flex;gap:6px;padding:12px 20px 0;overflow-x:auto}
 nav button{padding:8px 15px;border-radius:9px 9px 0 0;border:1px solid transparent;border-bottom:0;
@@ -113,6 +119,31 @@ section.on{display:block}
 .badge.warn{color:var(--warn);border-color:rgba(255,200,87,.35);background:rgba(255,200,87,.10)}
 .badge.info{color:var(--info);border-color:rgba(88,166,255,.35);background:rgba(88,166,255,.10)}
 .badge.acc{color:var(--acc);border-color:rgba(255,138,61,.35);background:rgba(255,138,61,.10)}
+
+/* ---------- health ---------- */
+.health{display:grid;grid-template-columns:minmax(210px,280px) 1fr;gap:18px;align-items:start}
+@media(max-width:760px){.health{grid-template-columns:1fr}}
+.hstate{display:flex;align-items:center;gap:10px;font-size:19px;font-weight:700;letter-spacing:-.2px}
+.hdot{width:12px;height:12px;border-radius:50%;background:var(--mut);box-shadow:0 0 12px currentColor;flex:0 0 auto}
+.hdot.ok{background:var(--ok);color:var(--ok)}
+.hdot.warn{background:var(--warn);color:var(--warn)}
+.hdot.err{background:var(--err);color:var(--err)}
+.hsub{font-size:12.5px;color:var(--mut);margin-top:7px;line-height:1.5}
+.hgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.hitem{position:relative;padding:7px 10px 7px 24px;border:1px solid var(--line);
+  border-radius:10px;background:var(--bg2);font-size:12.5px;line-height:1.25}
+.hitem .hdot{position:absolute;left:10px;top:12px}
+.hitem .hn{display:block;color:var(--mut);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hitem b{display:block;font-family:var(--mono);font-weight:600;white-space:nowrap}
+.hitem .hdot{width:7px;height:7px;box-shadow:none}
+.recs{margin-top:13px;border-top:1px solid var(--line);padding-top:11px}
+.recs .rt{font-size:11px;text-transform:uppercase;letter-spacing:.9px;color:var(--mut);margin-bottom:3px}
+.recs ul{margin:0;padding-left:17px}
+.recs li{margin:6px 0;font-size:13px;line-height:1.45}
+.recs li code{font-family:var(--mono);font-size:12px;background:var(--bg2);border:1px solid var(--line);
+  border-radius:5px;padding:1px 5px}
+.recs .allok{font-size:13px;color:var(--ok)}
+.tach{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
 
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);
@@ -222,13 +253,31 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
   <a class="qn" href="/cgi-bin/luci/admin/services/tachyon">🛰 Tachyon</a>
   <a class="qn" href="/cgi-bin/luci/admin/vpn/tailscale/setting">🌐 Tailscale</a>
   <a class="qn" href="/cgi-bin/luci/admin/status/logs/syslog">📜 Логи</a>
-  <a class="qn" href="/cgi-bin/luci/admin/system/reboot">⏻ Перезагрузка</a>
+</div>
+
+<div id="powerBar">
+  <button class="btn power" id="actRebootTop">⏻ Перезагрузить роутер</button>
 </div>
 
 <main>
 
 <!-- ========== OVERVIEW ========== -->
 <section id="s-overview" class="on">
+  <div class="card" style="margin-bottom:14px">
+    <h3>Общее состояние <span class="spacer"></span><span class="badge" id="hScore">проверка…</span></h3>
+    <div class="health">
+      <div>
+        <div class="hstate"><span class="hdot" id="hDot"></span><span id="hText">Проверка…</span></div>
+        <div class="hsub" id="hSub">Собираю данные с роутера…</div>
+      </div>
+      <div class="hgrid" id="hGrid"></div>
+    </div>
+    <div class="recs" id="hRecs" style="display:none">
+      <div class="rt">Рекомендации</div>
+      <ul id="hRecsList"></ul>
+    </div>
+  </div>
+
   <div class="grid g4">
     <div class="card">
       <h3>Процессор <span class="spacer"></span><span class="badge acc" id="cpuCores">—</span></h3>
@@ -273,8 +322,9 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
     </div>
 
     <div class="card">
-      <h3>VPN · Tailscale</h3>
+      <h3>VPN и туннели</h3>
       <div id="tsBox"><div class="empty">Загрузка…</div></div>
+      <div class="tach" id="tachBox"></div>
     </div>
 
     <div class="card">
@@ -435,7 +485,7 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
 
 <footer>
   <div id="ftLeft">OpenWrt · загрузка…</div>
-  <div>RouterDash 1.2.0 · данные через ubus JSON-RPC</div>
+  <div>RouterDash 1.3.0 · данные через ubus JSON-RPC</div>
 </footer>
 
 <div id="toast"></div>
@@ -554,12 +604,20 @@ async function refresh(){
       case 'logs':     if(!PAUSED)await loadLogs();break;
     }
   }catch(e){console.warn(e);}
-  finally{$('pSpin').style.visibility='hidden';refreshing=false;}
+  finally{
+    $('pSpin').style.visibility='hidden';refreshing=false;
+    renderHealth();renderTachyon();
+  }
 }
 
 /* ================= header ================= */
 let BOARD=null, LUCI=null;
 let CPU_PREV=null, CPU_CORES=null, CPU_HIST=[];
+/* Сводные показатели для карточки «Общее состояние». */
+const HEALTH={inet:null,cpu:null,ram:null,temp:null,load1:null,cores:null,
+  diskFree:null,ct:null,svcTotal:0,svcStopped:[],ts:null};
+let RC=null;
+const CRITICAL_SVCS=['network','dnsmasq','odhcpd','rpcd'];
 
 async function readText(path){
   const r=await tryCall('file','read',{path});
@@ -609,6 +667,7 @@ async function loadHeader(){
   const status=inf?inf.status:(wan&&typeof wan.up==='boolean'?(wan.up?'Online':'Offline'):null);
   $('pInet').className='dot '+(status==='Online'?'on':status?'off':'');
   $('pInetV').textContent=status||'—';
+  HEALTH.inet=status;
 
   const c=foxC||await cpuFallback(si);
   const t=(foxT&&foxT.sensors&&foxT.sensors.length)?foxT:await tempFallback();
@@ -617,6 +676,7 @@ async function loadHeader(){
     $('pUp').textContent=fmtDur(si.uptime);
     const used=si.memory.total-si.memory.available;
     const pct=Math.round(used/si.memory.total*100);
+    HEALTH.ram=pct;
     $('pRam').textContent=pct+'%';
     $('upVal').textContent=fmtDur(si.uptime);
     $('ramVal').textContent=pct;
@@ -628,6 +688,10 @@ async function loadHeader(){
     $('swapVal').textContent=si.swap.total?fmtB(si.swap.total-si.swap.free)+' / '+fmtB(si.swap.total):'нет';
   }
   if(c){
+    HEALTH.cpu=c.usage;
+    HEALTH.cores=c.cores;
+    const la=String(c.loadavg||'').split(/\s+/)[0];
+    HEALTH.load1=parseFloat(la)||null;
     $('pCpu').textContent=c.usage+'%';
     $('cpuVal').textContent=c.usage;
     $('cpuCores').textContent=c.cores+' ядра';
@@ -637,6 +701,7 @@ async function loadHeader(){
   }
   if(t&&t.sensors&&t.sensors.length){
     const s=t.sensors[0];
+    HEALTH.temp=s.value;
     $('pTemp').textContent=s.value+'°C';
     $('tempVal').textContent=s.value;
     $('tempLabel').textContent=s.label;
@@ -648,11 +713,12 @@ async function loadHeader(){
 
 /* ================= overview ================= */
 async function loadOverview(){
-  const [board,luci,ct1,ct2]=await Promise.all([
+  const [board,luci,ct1,ct2,rc]=await Promise.all([
     BOARD?Promise.resolve(BOARD):tryCall('system','board'),
     LUCI?Promise.resolve(LUCI):tryCall('luci','getVersion'),
     tryCall('file','read',{path:'/proc/sys/net/netfilter/nf_conntrack_count'}),
-    tryCall('file','read',{path:'/proc/sys/net/netfilter/nf_conntrack_max'})
+    tryCall('file','read',{path:'/proc/sys/net/netfilter/nf_conntrack_max'}),
+    tryCall('rc','list')
   ]);
   if(board){
     BOARD=board;
@@ -671,7 +737,103 @@ async function loadOverview(){
   if(ct1&&ct2){
     const a=+(ct1.data||'').trim(),b=+(ct2.data||'').trim();
     $('ctVal').textContent=a+' / '+b;
+    HEALTH.ct=b>0?a/b:null;
   }
+  if(rc){
+    RC=rc;
+    const monitored=CRITICAL_SVCS.filter(n=>rc[n]&&('running' in rc[n]));
+    HEALTH.svcTotal=monitored.length;
+    HEALTH.svcStopped=monitored.filter(n=>!rc[n].running);
+  }
+}
+
+/* ================= health ================= */
+function renderTachyon(){
+  const box=$('tachBox');if(!box)return;
+  const v=RC&&RC['tachyon'];
+  let label='не установлен',cls='';
+  if(v){
+    if(v.running){label='работает';cls='ok';}
+    else if(v.enabled){label='остановлен';cls='err';}
+    else {label='выключен';cls='';}
+  }
+  box.innerHTML=`<div class="kv"><span>🛰 Tachyon</span><span><b class="badge ${cls}">${label}</b></span></div>
+    <div class="links" style="margin-top:8px">
+      <a href="/cgi-bin/luci/admin/services/tachyon" target="_blank">Открыть Tachyon</a>
+    </div>`;
+}
+
+function healthChecks(){
+  const items=[],recs=[];
+  const add=(name,val,st,rec)=>{
+    items.push({name,val,st});
+    if(st!=='ok'&&rec)recs.push(rec);
+  };
+  if(HEALTH.inet)
+    add('Интернет',HEALTH.inet,HEALTH.inet==='Online'?'ok':'err',
+      'Нет доступа в интернет: проверьте кабель или PPPoE и выполните <code>ifup wan</code>.');
+  if(HEALTH.cpu!=null)
+    add('CPU',HEALTH.cpu+'%',HEALTH.cpu>=90?'err':HEALTH.cpu>=75?'warn':'ok',
+      'Высокая загрузка CPU: посмотрите процессы в <code>top</code> и отключите лишние сервисы.');
+  if(HEALTH.ram!=null)
+    add('Память',HEALTH.ram+'%',HEALTH.ram>=88?'err':HEALTH.ram>=75?'warn':'ok',
+      'Мало свободной памяти: проверьте <code>top</code>, отключите неиспользуемые пакеты и службы.');
+  if(HEALTH.temp!=null)
+    add('Температура',HEALTH.temp+'°C',HEALTH.temp>=85?'err':HEALTH.temp>=75?'warn':'ok',
+      'Температура выше нормы: проверьте вентиляцию и вентиляционные отверстия, снизьте нагрузку.');
+  if(HEALTH.load1!=null&&HEALTH.cores){
+    const per=HEALTH.load1/HEALTH.cores;
+    add('Load avg',HEALTH.load1.toFixed(2)+' / '+HEALTH.cores+' яд.',
+      per>=2?'err':per>=1?'warn':'ok',
+      'Load average выше числа ядер: найдите нагрузку через <code>top</code> или <code>ps w</code>.');
+  }
+  if(HEALTH.diskFree!=null)
+    add('Диск /',HEALTH.diskFree+'% своб.',HEALTH.diskFree<=8?'err':HEALTH.diskFree<=15?'warn':'ok',
+      'Мало места на flash: очистите кэш <code>apk cache clean</code> и удалите ненужные пакеты.');
+  if(HEALTH.ct!=null){
+    const p=Math.round(HEALTH.ct*100);
+    add('Соединения',p+'%',p>=95?'err':p>=85?'warn':'ok',
+      'Почти исчерпан лимит соединений (conntrack): проверьте торренты и aria2.');
+  }
+  if(HEALTH.svcTotal){
+    const stopped=HEALTH.svcStopped;
+    add('Сервисы',(HEALTH.svcTotal-stopped.length)+'/'+HEALTH.svcTotal,stopped.length?'err':'ok',
+      'Не запущены: <code>'+esc(stopped.join(', '))+'</code>. Перезапустите: <code>/etc/init.d/&lt;имя&gt; restart</code>.');
+  }
+  if(HEALTH.ts){
+    add('Tailscale',HEALTH.ts,
+      HEALTH.ts==='Running'?'ok':HEALTH.ts==='NeedsLogin'?'warn':'err',
+      'Tailscale не в рабочем состоянии: выполните <code>tailscale up</code> и проверьте вход.');
+  }
+  return {items,recs};
+}
+
+function renderHealth(){
+  const box=$('hGrid');if(!box)return;
+  const {items,recs}=healthChecks();
+  if(!items.length){$('hSub').textContent='Собираю данные с роутера…';return;}
+  const err=items.filter(i=>i.st==='err').length;
+  const warn=items.filter(i=>i.st==='warn').length;
+  const ok=items.length-err-warn;
+  const level=err?'err':warn?'warn':'ok';
+  const dot=$('hDot');
+  dot.className='hdot '+level;
+  $('hText').textContent=err?'Есть проблемы':warn?'Есть замечания':'Всё в норме';
+  $('hSub').textContent=err
+    ? `Проверок с ошибкой: ${err}. Ниже — что стоит исправить.`
+    : warn
+      ? `Замечаний: ${warn}. Серьёзных сбоев нет, но есть что улучшить.`
+      : 'Все ключевые параметры в допустимых пределах.';
+  const sc=$('hScore');
+  sc.className='badge '+level;
+  sc.textContent=ok+' из '+items.length+' в норме';
+  box.innerHTML=items.map(i=>`<div class="hitem"><span class="hdot ${i.st}"></span>
+    <span class="hn">${esc(i.name)}</span><b>${esc(i.val)}</b></div>`).join('');
+  const rb=$('hRecs'),rl=$('hRecsList');
+  rb.style.display='block';
+  rl.innerHTML=recs.length
+    ? recs.map(r=>`<li>${r}</li>`).join('')
+    : '<li class="allok">Отклонений не обнаружено — роутер работает в штатном режиме.</li>';
 }
 
 async function loadMounts(){
@@ -686,6 +848,8 @@ async function loadMounts(){
       <span>${fmtB(used)} / ${fmtB(x.size)}</span></div>
       <div class="bar ${cls}"><i style="width:${p}%"></i></div></div>`;
   }).join('');
+  const root=m.result.find(x=>x.mount==='/'&&x.size>0);
+  if(root)HEALTH.diskFree=Math.round(root.avail/root.size*100);
   const usb=await tryCall('luci','getUSBDevices');
   let extra='';
   if(usb&&usb.devices&&usb.devices.length){
@@ -697,9 +861,10 @@ async function loadMounts(){
 async function loadTailscale(){
   const box=$('tsBox');
   const r=await tryCall('file','exec',{command:'/usr/sbin/tailscale',params:['status','--json']});
-  if(!r||r.code!==0||!r.stdout){box.innerHTML='<div class="empty">Tailscale недоступен</div>';return;}
+  if(!r||r.code!==0||!r.stdout){HEALTH.ts=null;box.innerHTML='<div class="empty">Tailscale недоступен</div>';return;}
   let j;try{j=JSON.parse(r.stdout);}catch(e){box.innerHTML='<div class="empty">Ошибка разбора</div>';return;}
   const st=j.BackendState||'—';
+  HEALTH.ts=st;
   const cls=st==='Running'?'ok':st==='NeedsLogin'?'warn':'err';
   const self=j.Self||{};
   const peers=Object.values(j.Peers||{});
@@ -1167,12 +1332,14 @@ $('actFw').addEventListener('click',async()=>{
     toast('Firewall перезапущен','ok');}
   catch(e){toast('Ошибка: '+e.message,'err');}
 });
-$('actReboot').addEventListener('click',async()=>{
+async function doReboot(){
   if(!confirm('Перезагрузить роутер? Соединение будет потеряно.'))return;
   if(!confirm('Точно перезагрузить?'))return;
   try{await call('system','reboot',{});toast('Перезагрузка…','ok');stopPoll();}
   catch(e){toast('Ошибка: '+e.message,'err');}
-});
+}
+$('actReboot').addEventListener('click',doReboot);
+$('actRebootTop').addEventListener('click',doReboot);
 
 /* ================= resize ================= */
 let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{

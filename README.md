@@ -6,18 +6,72 @@
 Тёмный дашборд для OpenWrt. Ставится одним `.apk`-пакетом
 на любой роутер с OpenWrt 24.10+ и LuCI, работает на ARM, MIPS и x86.
 
-![Скриншот дашборда](docs/screenshot.jpg)
+![Обзор дашборда](docs/screens/overview.jpg)
 
 ## Возможности
 
 - **8 вкладок**: обзор, сеть, Wi-Fi, клиенты, сервисы, загрузки, пакеты, логи.
+- **Общее состояние роутера**: одна карточка со сводкой по интернету, CPU, памяти,
+  температуре, load average, диску, соединениям и службам — с рекомендациями,
+  если какой-то параметр вышел за пределы нормы.
 - **Живые метрики**: CPU, RAM, температура, аптайм, статус интернета.
-- **Быстрые переходы** в 13 разделов LuCI.
+- **Быстрые переходы** в разделы LuCI и отдельная кнопка перезагрузки.
+- **VPN и туннели**: состояние Tailscale и Tachyon в одной карточке.
 - **Авторизация через LuCI** — отдельный пароль не нужен.
 - **Не зависит от темы оформления**: логотип встроен, а CPU/температура/WAN
   берутся из стандартных источников, если модуль мониторинга недоступен.
 - **Дашборд как главная страница**: `/` открывает дашборд, старая главная
   сохраняется и возвращается при удалении пакета.
+
+## Скриншоты разделов
+
+<details open>
+<summary><b>Обзор</b></summary>
+
+![Обзор](docs/screens/overview.jpg)
+</details>
+
+<details>
+<summary><b>Сеть</b></summary>
+
+![Сеть](docs/screens/network.jpg)
+</details>
+
+<details>
+<summary><b>Wi-Fi</b></summary>
+
+![Wi-Fi](docs/screens/wifi.jpg)
+</details>
+
+<details>
+<summary><b>Клиенты</b></summary>
+
+![Клиенты](docs/screens/clients.jpg)
+</details>
+
+<details>
+<summary><b>Сервисы</b></summary>
+
+![Сервисы](docs/screens/services.jpg)
+</details>
+
+<details>
+<summary><b>Загрузки</b></summary>
+
+![Загрузки](docs/screens/downloads.jpg)
+</details>
+
+<details>
+<summary><b>Пакеты</b></summary>
+
+![Пакеты](docs/screens/packages.jpg)
+</details>
+
+<details>
+<summary><b>Логи</b></summary>
+
+![Логи](docs/screens/logs.jpg)
+</details>
 
 ## Требования
 
@@ -88,6 +142,7 @@ package/build-apk.py               сборщик .apk без SDK
 package/files/                     файлы, попадающие на роутер
 package/scripts/                   post-install / post-upgrade / post-deinstall
 package/README.md                  краткая инструкция по пакету
+docs/screens/                      скриншоты разделов
 .github/workflows/                 CI: сборка apk и релизы
 ```
 

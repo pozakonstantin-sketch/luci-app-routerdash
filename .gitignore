@@ -1,0 +1,14 @@
+# Build output
+package/dist/
+*.apk
+*.apk.sha256
+
+# Generated at build time from ../dashboard.html
+package/files/www/dashboard.html
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

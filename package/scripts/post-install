@@ -1,0 +1,21 @@
+#!/bin/sh
+# Make the dashboard the start page, keeping the previous page as a backup.
+[ -f /www/index.html ] && [ ! -f /www/index.html.routerdash-backup ] && \
+	cp -f /www/index.html /www/index.html.routerdash-backup
+
+cat > /www/index.html <<'EOF'
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="refresh" content="0; URL=dashboard.html">
+<title>Dashboard</title>
+<script>location.replace('dashboard.html');</script>
+</head>
+<body><a href="dashboard.html">Открыть дашборд</a></body>
+</html>
+EOF
+
+/etc/init.d/uhttpd reload >/dev/null 2>&1 || true
+exit 0

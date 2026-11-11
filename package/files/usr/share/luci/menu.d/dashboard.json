@@ -1,0 +1,15 @@
+{
+	"admin/dashboard": {
+		"title": "Дашборд",
+		"order": 1,
+		"action": {
+			"type": "function",
+			"module": "luci.controller.dashboard",
+			"function": "action_dashboard"
+		},
+		"auth": {
+			"methods": [ "cookie:sysauth_https", "cookie:sysauth_http" ],
+			"login": true
+		}
+	}
+}

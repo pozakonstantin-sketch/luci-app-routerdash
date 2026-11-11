@@ -1,0 +1,45 @@
+name: Release APK
+
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build package
+        run: python3 package/build-apk.py
+
+      - name: Checksums
+        run: |
+          cd package/dist
+          sha256sum *.apk | tee SHA256SUMS
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            package/dist/*.apk
+            package/dist/SHA256SUMS
+          generate_release_notes: true
+          body: |
+            Установка:
+
+            ```sh
+            scp luci-app-routerdash-*.apk root@192.168.1.1:/tmp/
+            ssh root@192.168.1.1 "apk add --allow-untrusted /tmp/luci-app-routerdash-*.apk"
+            ```
+
+            Требуется OpenWrt 24.10+ с LuCI. Пакет не подписан —
+            используйте `--allow-untrusted`.

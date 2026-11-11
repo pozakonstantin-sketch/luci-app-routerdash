@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>OpenWrt · Dashboard</title>
+<style>
+:root{
+  --bg:#0b0f14; --bg2:#0f151c; --card:#121a23; --card2:#16202b; --line:#1f2a37;
+  --fg:#e6edf3; --mut:#8b98a5; --acc:#ff8a3d; --acc2:#ff6b1a;
+  --ok:#3ddc84; --warn:#ffc857; --err:#ff5f56; --info:#58a6ff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(255,138,61,.10), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(88,166,255,.08), transparent 55%),
+    var(--bg);
+  color:var(--fg); font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Arial,sans-serif;
+  min-height:100vh;
+}
+a{color:var(--info);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:var(--mono)}
+
+/* ---------- login ---------- */
+#login{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(900px 500px at 50% -20%,rgba(255,138,61,.12),transparent 65%),var(--bg);}
+#login.hide{display:none}
+.lg{width:min(380px,92vw);background:var(--card);border:1px solid var(--line);border-radius:16px;
+  padding:28px 26px;box-shadow:0 24px 60px rgba(0,0,0,.55)}
+.lg img{width:56px;height:56px;display:block;margin:0 auto 6px}
+.lg h1{font-size:18px;margin:6px 0 2px;text-align:center;letter-spacing:.4px}
+.lg p.sub{margin:0 0 18px;text-align:center;color:var(--mut);font-size:12.5px}
+.lg label{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px;text-transform:uppercase;letter-spacing:.6px}
+.lg input{width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
+  background:var(--bg2);color:var(--fg);font-size:14px;outline:none}
+.lg input:focus{border-color:var(--acc)}
+.lg button{width:100%;margin-top:18px;padding:11px;border:0;border-radius:9px;cursor:pointer;
+  background:linear-gradient(180deg,var(--acc),var(--acc2));color:#1a1205;font-weight:700;font-size:14.5px}
+.lg button:active{transform:translateY(1px)}
+.lg .row{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;color:var(--mut)}
+.lg .err{display:none;margin-top:12px;padding:9px 11px;border-radius:8px;font-size:13px;
+  background:rgba(255,95,86,.12);border:1px solid rgba(255,95,86,.4);color:#ffb3ae}
+.lg .err.on{display:block}
+
+/* ---------- layout ---------- */
+header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:12px 20px;background:rgba(11,15,20,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15.5px;letter-spacing:.3px}
+.brand img{width:26px;height:26px}
+.brand svg{width:26px;height:26px;color:var(--acc);flex:0 0 auto}
+.brand span.sub{font-weight:400;color:var(--mut);font-size:12px}
+.pills{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+.pill{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:12.5px;
+  background:var(--card);border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+.pill b{color:var(--fg);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--mut);box-shadow:0 0 8px currentColor}
+.dot.on{background:var(--ok);color:var(--ok)}
+.dot.off{background:var(--err);color:var(--err)}
+.btn{padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card2);
+  color:var(--fg);font-size:12.5px;cursor:pointer}
+.btn:hover{border-color:var(--acc);color:var(--acc)}
+.btn.danger:hover{border-color:var(--err);color:var(--err)}
+.btn.mini{padding:3px 9px;font-size:11.5px;border-radius:6px}
+.btn:disabled{opacity:.45;cursor:default}
+
+nav{display:flex;gap:6px;padding:12px 20px 0;overflow-x:auto}
+nav button{padding:8px 15px;border-radius:9px 9px 0 0;border:1px solid transparent;border-bottom:0;
+  background:transparent;color:var(--mut);font-size:13.5px;cursor:pointer;white-space:nowrap}
+nav button:hover{color:var(--fg);background:var(--card)}
+nav button.on{background:var(--card);border-color:var(--line);color:var(--acc);font-weight:600}
+#luciNav{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px 20px 0}
+#luciNav .qnl{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.9px;margin-right:2px}
+#luciNav a.qn{padding:6px 11px;border-radius:8px;border:1px solid var(--line);background:var(--card);
+  color:var(--fg);font-size:12.5px;white-space:nowrap}
+#luciNav a.qn:hover{border-color:var(--acc);color:var(--acc);background:var(--card2);text-decoration:none}
+main{padding:14px 20px 40px}
+section{display:none}
+section.on{display:block}
+
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(420px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 17px;
+  box-shadow:0 8px 24px rgba(0,0,0,.22)}
+.card h3{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:1.1px;color:var(--mut);
+  display:flex;align-items:center;gap:8px}
+.card h3 .spacer{flex:1}
+.big{font-size:30px;font-weight:700;letter-spacing:-.5px;font-family:var(--mono)}
+.big small{font-size:14px;color:var(--mut);font-weight:400}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:13px;border-bottom:1px dashed rgba(255,255,255,.05)}
+.kv:last-child{border-bottom:0}
+.kv span:first-child{color:var(--mut)}
+.kv span:last-child{font-family:var(--mono);text-align:right}
+
+.bar{height:8px;border-radius:6px;background:var(--bg2);overflow:hidden;margin:9px 0 5px;border:1px solid var(--line)}
+.bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .5s}
+.bar.ok i{background:linear-gradient(90deg,#2fbf71,#3ddc84)}
+.bar.warn i{background:linear-gradient(90deg,#e8a33d,#ffc857)}
+.bar.err i{background:linear-gradient(90deg,#e04a44,#ff5f56)}
+.bar.info i{background:linear-gradient(90deg,#3d7dd8,#58a6ff)}
+.barlab{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut);font-family:var(--mono)}
+
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;
+  border:1px solid var(--line);background:var(--bg2);color:var(--mut)}
+.badge.ok{color:var(--ok);border-color:rgba(61,220,132,.35);background:rgba(61,220,132,.10)}
+.badge.err{color:var(--err);border-color:rgba(255,95,86,.35);background:rgba(255,95,86,.10)}
+.badge.warn{color:var(--warn);border-color:rgba(255,200,87,.35);background:rgba(255,200,87,.10)}
+.badge.info{color:var(--info);border-color:rgba(88,166,255,.35);background:rgba(88,166,255,.10)}
+.badge.acc{color:var(--acc);border-color:rgba(255,138,61,.35);background:rgba(255,138,61,.10)}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);
+  padding:8px 10px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card)}
+td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.045);vertical-align:middle}
+tr:hover td{background:rgba(255,255,255,.025)}
+td.num,th.num{text-align:right;font-family:var(--mono);white-space:nowrap}
+td.nw{white-space:nowrap}
+.tblwrap{overflow:auto;max-height:460px;border-radius:10px;border:1px solid var(--line)}
+.empty{padding:22px;text-align:center;color:var(--mut);font-size:13px}
+
+.svc{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);
+  border-radius:10px;background:var(--card2);margin-bottom:7px;flex-wrap:wrap}
+.svc .nm{font-family:var(--mono);font-size:13px;min-width:130px}
+.svc .act{margin-left:auto;display:flex;gap:6px}
+.sig{display:inline-flex;align-items:flex-end;gap:2px;height:14px;vertical-align:-2px}
+.sig i{width:3px;background:var(--line);border-radius:2px}
+.sig i.on{background:var(--ok)}
+.sig i.on.d{background:var(--warn)} .sig i.on.h{background:var(--err)}
+
+input.filter{padding:8px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg2);
+  color:var(--fg);font-size:13px;outline:none;min-width:220px}
+input.filter:focus{border-color:var(--acc)}
+select.filter{padding:8px 30px 8px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg2);
+  color:var(--fg);font-size:13px;outline:none;cursor:pointer;appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238b98a5'/></svg>");
+  background-repeat:no-repeat;background-position:right 12px center}
+select.filter:focus{border-color:var(--acc)}
+select.filter option{background:var(--bg2);color:var(--fg)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.chip{padding:4px 11px;border-radius:999px;font-size:12px;border:1px solid var(--line);
+  background:var(--card2);color:var(--mut);cursor:pointer}
+.chip.on{border-color:var(--acc);color:var(--acc);background:rgba(255,138,61,.10)}
+
+canvas{width:100%;display:block}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--mut);margin-top:6px}
+.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:2px}
+
+.logline{display:flex;gap:10px;padding:3px 10px;font-family:var(--mono);font-size:12px;
+  border-bottom:1px solid rgba(255,255,255,.04);white-space:pre-wrap;word-break:break-word}
+.logline .t{color:var(--mut);flex:0 0 auto}
+.logline.l3{color:#ffb3ae} .logline.l4{color:#ffd98a} .logline.l6{color:#c9d4de} .logline.l7{color:#7d8b98}
+.logline.l3 .lv,.logline.l4 .lv{font-weight:700}
+.lv{flex:0 0 62px;color:var(--mut);text-transform:uppercase;font-size:10.5px;letter-spacing:.5px;padding-top:2px}
+
+.links{display:flex;gap:8px;flex-wrap:wrap}
+.links a{padding:7px 13px;border-radius:9px;border:1px solid var(--line);background:var(--card2);
+  font-size:12.5px;color:var(--fg)}
+.links a:hover{border-color:var(--acc);color:var(--acc);text-decoration:none}
+
+#toast{position:fixed;right:18px;bottom:18px;z-index:60;display:flex;flex-direction:column;gap:8px}
+.toast{padding:11px 15px;border-radius:10px;background:var(--card2);border:1px solid var(--line);
+  font-size:13px;box-shadow:0 12px 30px rgba(0,0,0,.5);animation:tin .25s ease}
+.toast.ok{border-color:rgba(61,220,132,.5)} .toast.err{border-color:rgba(255,95,86,.5)}
+@keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid var(--line);border-top-color:var(--acc);
+  border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px solid var(--line);margin-top:26px;
+  display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
+@media(max-width:700px){ .pills{margin-left:0} main{padding:12px} nav{padding:10px 12px 0} header{padding:10px 12px} }
+</style>
+</head>
+<body>
+
+<!-- ================= APP ================= -->
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.1"/><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>
+    </svg>
+    <div><span id="brandName">OpenWrt</span> <span class="sub">· Dashboard</span></div>
+  </div>
+  <div class="pills">
+    <div class="pill"><span class="dot" id="pInet"></span> Интернет <b id="pInetV">…</b></div>
+    <div class="pill">🌡 <b id="pTemp">…</b></div>
+    <div class="pill">⚡ CPU <b id="pCpu">…</b></div>
+    <div class="pill">🧠 RAM <b id="pRam">…</b></div>
+    <div class="pill">⏱ <b id="pUp">…</b></div>
+    <div class="pill"><span class="spin" id="pSpin"></span></div>
+    <button class="btn danger" id="logout">Выйти</button>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button data-t="overview" class="on">Обзор</button>
+  <button data-t="network">Сеть</button>
+  <button data-t="wifi">Wi-Fi</button>
+  <button data-t="clients">Клиенты</button>
+  <button data-t="services">Сервисы</button>
+  <button data-t="downloads">Загрузки</button>
+  <button data-t="packages">Пакеты</button>
+  <button data-t="logs">Логи</button>
+</nav>
+
+<div id="luciNav">
+  <span class="qnl">Разделы OpenWrt</span>
+  <a class="qn" href="/cgi-bin/luci/admin/status/overview">📊 Статус</a>
+  <a class="qn" href="/cgi-bin/luci/admin/network/network">🔌 Сеть</a>
+  <a class="qn" href="/cgi-bin/luci/admin/network/wireless">📶 Wi-Fi</a>
+  <a class="qn" href="/cgi-bin/luci/admin/network/firewall">🛡 Firewall</a>
+  <a class="qn" href="/cgi-bin/luci/admin/system/system">⚙ Система</a>
+  <a class="qn" href="/cgi-bin/luci/admin/system/startup">🚀 Автозапуск</a>
+  <a class="qn" href="/cgi-bin/luci/admin/system/package-manager">📦 Пакеты</a>
+  <a class="qn" href="/cgi-bin/luci/admin/services/aria2/config">⬇ Aria2</a>
+  <a class="qn" href="/cgi-bin/luci/admin/services/samba4">💾 Samba</a>
+  <a class="qn" href="/cgi-bin/luci/admin/services/tachyon">🛰 Tachyon</a>
+  <a class="qn" href="/cgi-bin/luci/admin/vpn/tailscale/setting">🌐 Tailscale</a>
+  <a class="qn" href="/cgi-bin/luci/admin/status/logs/syslog">📜 Логи</a>
+  <a class="qn" href="/cgi-bin/luci/admin/system/reboot">⏻ Перезагрузка</a>
+</div>
+
+<main>
+
+<!-- ========== OVERVIEW ========== -->
+<section id="s-overview" class="on">
+  <div class="grid g4">
+    <div class="card">
+      <h3>Процессор <span class="spacer"></span><span class="badge acc" id="cpuCores">—</span></h3>
+      <div class="big"><span id="cpuVal">…</span><small>%</small></div>
+      <canvas id="cpuSpark" height="46"></canvas>
+      <div class="kv"><span>Load average</span><span id="cpuLoad">—</span></div>
+      <div class="kv"><span>Ядро</span><span id="cpuKernel">—</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Память</h3>
+      <div class="big"><span id="ramVal">…</span><small>%</small></div>
+      <div class="bar"><i id="ramBar" style="width:0"></i></div>
+      <div class="barlab"><span id="ramUsed">—</span><span id="ramTot">—</span></div>
+      <div class="kv"><span>Доступно</span><span id="ramAvail">—</span></div>
+      <div class="kv"><span>Swap</span><span id="swapVal">—</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Температура</h3>
+      <div class="big"><span id="tempVal">…</span><small>°C</small></div>
+      <div class="bar ok" id="tempBarWrap"><i id="tempBar" style="width:0"></i></div>
+      <div class="kv"><span>Датчик</span><span id="tempLabel">—</span></div>
+      <div class="kv"><span>Uptime</span><span id="upVal">—</span></div>
+      <div class="kv"><span>Соединения</span><span id="ctVal">—</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Система</h3>
+      <div class="kv"><span>Модель</span><span id="sysModel">—</span></div>
+      <div class="kv"><span>Версия</span><span id="sysVer">—</span></div>
+      <div class="kv"><span>Ядро</span><span id="sysKern">—</span></div>
+      <div class="kv"><span>LuCI</span><span id="sysLuci">—</span></div>
+      <div class="kv"><span>Хостнейм</span><span id="sysHost">—</span></div>
+    </div>
+  </div>
+
+  <div class="grid g3" style="margin-top:14px">
+    <div class="card">
+      <h3>Хранилище</h3>
+      <div id="mounts"><div class="empty">Загрузка…</div></div>
+    </div>
+
+    <div class="card">
+      <h3>VPN · Tailscale</h3>
+      <div id="tsBox"><div class="empty">Загрузка…</div></div>
+    </div>
+
+    <div class="card">
+      <h3>Быстрые действия</h3>
+      <div class="links" style="flex-direction:column">
+        <a href="/cgi-bin/luci/" target="_blank">🧭 LuCI · OpenWrt</a>
+        <a href="/ariang/" target="_blank">⬇ AriaNG · менеджер загрузок</a>
+        <a href="/cgi-bin/luci/admin/vpn/tailscale/setting" target="_blank">🌐 Tailscale</a>
+        <a href="/cgi-bin/luci/admin/services/tachyon/tachyon" target="_blank">🛡 Tachyon</a>
+        <a href="/cgi-bin/luci/admin/system/package-manager" target="_blank">📦 Менеджер пакетов</a>
+        <a href="/cgi-bin/luci/admin/status/logs" target="_blank">📜 Логи LuCI</a>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <button class="btn" id="actWifi">Перезапустить Wi-Fi</button>
+        <button class="btn" id="actFw">Перезапустить firewall</button>
+        <button class="btn danger" id="actReboot">Перезагрузка</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== NETWORK ========== -->
+<section id="s-network">
+  <div class="grid g2">
+    <div class="card">
+      <h3>Интерфейсы</h3>
+      <div class="tblwrap"><table><thead><tr>
+        <th>Интерфейс</th><th>Протокол</th><th>Адрес</th><th class="num">Аптайм</th><th>DNS</th>
+      </tr></thead><tbody id="ifRows"><tr><td colspan="5" class="empty">…</td></tr></tbody></table></div>
+    </div>
+    <div class="card">
+      <h3>Трафик <span class="spacer"></span><span class="badge" id="bwNow">—</span></h3>
+      <canvas id="bwChart" height="150"></canvas>
+      <div class="legend">
+        <span><i style="background:#ff8a3d"></i>WAN ↓</span>
+        <span><i style="background:#3ddc84"></i>WAN ↑</span>
+        <span><i style="background:#58a6ff"></i>LAN ↓</span>
+        <span><i style="background:#b083ff"></i>LAN ↑</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card">
+      <h3>Сетевые устройства</h3>
+      <div class="tblwrap"><table><thead><tr>
+        <th>Интерфейс</th><th>MAC</th><th class="num">Скорость</th><th class="num">RX</th><th class="num">TX</th>
+      </tr></thead><tbody id="devRows"><tr><td colspan="5" class="empty">…</td></tr></tbody></table></div>
+    </div>
+    <div class="card">
+      <h3>Шары и сервисы сети</h3>
+      <div id="netInfo"><div class="empty">Загрузка…</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== WIFI ========== -->
+<section id="s-wifi">
+  <div class="grid g2" id="radioCards"><div class="empty">Загрузка…</div></div>
+  <div class="card" style="margin-top:14px">
+    <h3>Wi-Fi клиенты <span class="spacer"></span><span class="badge" id="wifiCount">0</span></h3>
+    <div class="tblwrap"><table><thead><tr>
+      <th>MAC</th><th>Имя</th><th class="num">Сигнал</th><th class="num">Шум</th>
+      <th class="num">Скорость</th><th class="num">RX</th><th class="num">TX</th><th class="num">Связь</th>
+    </tr></thead><tbody id="wifiRows"><tr><td colspan="8" class="empty">…</td></tr></tbody></table></div>
+  </div>
+</section>
+
+<!-- ========== CLIENTS ========== -->
+<section id="s-clients">
+  <div class="card">
+    <h3>Клиенты сети <span class="spacer"></span>
+      <input class="filter" id="clFilter" placeholder="Поиск по имени / IP / MAC…">
+      <span class="badge" id="clCount">0</span>
+    </h3>
+    <div class="tblwrap"><table><thead><tr>
+      <th>Имя</th><th>IP</th><th>MAC</th><th>Источник</th><th class="num">Сигнал</th>
+      <th class="num">Линк</th><th class="num">RX</th><th class="num">TX</th><th class="num">Аренда</th>
+    </tr></thead><tbody id="clRows"><tr><td colspan="9" class="empty">…</td></tr></tbody></table></div>
+  </div>
+</section>
+
+<!-- ========== SERVICES ========== -->
+<section id="s-services">
+  <div class="card">
+    <h3>Сервисы <span class="spacer"></span>
+      <span class="badge ok" id="svcRun">0 работает</span>
+      <span class="badge" id="svcTotal">0 всего</span>
+      <button class="btn mini" id="svcRefresh">Обновить</button>
+    </h3>
+    <div id="svcList"><div class="empty">Загрузка…</div></div>
+  </div>
+</section>
+
+<!-- ========== DOWNLOADS ========== -->
+<section id="s-downloads">
+  <div class="grid g4">
+    <div class="card"><h3>Скорость ↓</h3><div class="big" id="arDown">—</div></div>
+    <div class="card"><h3>Скорость ↑</h3><div class="big" id="arUp">—</div></div>
+    <div class="card"><h3>Активных</h3><div class="big" id="arAct">—</div></div>
+    <div class="card"><h3>В очереди / стоп</h3><div class="big" id="arWait">—</div></div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>Добавить загрузку <span class="spacer"></span><span class="badge" id="arState">—</span></h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input class="filter" id="arUri" style="flex:1;min-width:280px" placeholder="https://… или magnet:">
+      <button class="btn" id="arAdd">Добавить в aria2</button>
+      <a class="btn" href="/ariang/" target="_blank" style="line-height:1.6">Открыть AriaNG</a>
+    </div>
+    <div class="tblwrap" style="margin-top:12px"><table><thead><tr>
+      <th>Задача</th><th>Статус</th><th class="num">Прогресс</th><th class="num">Скорость</th><th class="num">Осталось</th>
+    </tr></thead><tbody id="arRows"><tr><td colspan="5" class="empty">…</td></tr></tbody></table></div>
+  </div>
+</section>
+
+<!-- ========== PACKAGES ========== -->
+<section id="s-packages">
+  <div class="card">
+    <h3>Установленные пакеты <span class="spacer"></span>
+      <input class="filter" id="pkFilter" placeholder="Поиск пакета…">
+      <span class="badge" id="pkCount">0</span>
+      <button class="btn mini" id="pkRefresh">Обновить</button>
+    </h3>
+    <div class="chips" id="pkChips">
+      <span class="chip on" data-f="all">Все</span>
+      <span class="chip" data-f="luci">LuCI / темы</span>
+      <span class="chip" data-f="app">Приложения</span>
+      <span class="chip" data-f="kmod">Модули ядра</span>
+      <span class="chip" data-f="lib">Библиотеки</span>
+      <span class="chip" data-f="base">Система</span>
+    </div>
+    <div class="tblwrap" style="margin-top:12px"><table><thead><tr>
+      <th>Пакет</th><th>Версия</th><th>Категория</th>
+    </tr></thead><tbody id="pkRows"><tr><td colspan="3" class="empty">…</td></tr></tbody></table></div>
+  </div>
+</section>
+
+<!-- ========== LOGS ========== -->
+<section id="s-logs">
+  <div class="card">
+    <h3>Системный журнал <span class="spacer"></span>
+      <input class="filter" id="lgFilter" placeholder="Фильтр текста…">
+      <select id="lgLevel" class="filter" style="min-width:150px">
+        <option value="0">Все уровни</option>
+        <option value="3">Только ошибки</option>
+        <option value="4">Ошибки + предупреждения</option>
+        <option value="6">Ошибки + предупр. + инфо</option>
+      </select>
+      <button class="btn mini" id="lgPause">Пауза</button>
+      <button class="btn mini" id="lgRefresh">Обновить</button>
+      <span class="badge" id="lgCount">0</span>
+    </h3>
+    <div class="tblwrap" style="max-height:60vh"><div id="logBox"><div class="empty">Загрузка…</div></div></div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div id="ftLeft">OpenWrt · загрузка…</div>
+  <div>RouterDash 1.2.0 · данные через ubus JSON-RPC</div>
+</footer>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ================= helpers ================= */
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const KB=1024, MB=KB*1024, GB=MB*1024;
+function fmtB(n){n=+n||0;if(n>=GB)return (n/GB).toFixed(2)+' ГБ';if(n>=MB)return (n/MB).toFixed(1)+' МБ';
+  if(n>=KB)return (n/KB).toFixed(0)+' КБ';return n+' Б';}
+function fmtSp(n){n=+n||0;if(n>=MB)return (n/MB).toFixed(1)+' МБ/с';if(n>=KB)return (n/KB).toFixed(0)+' КБ/с';return n+' Б/с';}
+function fmtDur(s){s=Math.floor(+s||0);const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),
+  m=Math.floor(s%3600/60),x=s%60;let o=[];
+  if(d)o.push(d+' д');if(h)o.push(h+' ч');if(m)o.push(m+' м');if(!d&&!h)o.push(x+' с');
+  return o.join(' ');}
+function fmtTime(ms){const d=new Date(ms);const p=n=>String(n).padStart(2,'0');
+  return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
+function toast(msg,kind){const t=document.createElement('div');t.className='toast '+(kind||'');
+  t.textContent=msg;$('toast').appendChild(t);setTimeout(()=>t.remove(),4200);}
+
+/* ================= ubus через LuCI ================= */
+/* Авторизация — общая сессия LuCI (HttpOnly-cookie): сервер сам подставляет
+   её, если передать нулевой SID, поэтому отдельный пароль не нужен.
+   Если сессии нет, LuCI вернёт -32002 и мы уходим на системный вход. */
+const RPC='/cgi-bin/luci/admin/ubus';
+const NOSID='00000000000000000000000000000000';
+let LOGIN_HOP=false;
+function fetchT(url,opts,ms){
+  const ctl=new AbortController();
+  const t=setTimeout(()=>ctl.abort(),ms||12000);
+  return fetch(url,Object.assign({credentials:'same-origin'},opts,{signal:ctl.signal}))
+    .finally(()=>clearTimeout(t));
+}
+/* rpcd падает (SIGSEGV) при параллельных запросах с недействительной
+   сессией, поэтому держим в полёте только один вызов ubus. */
+let CALLQ=Promise.resolve();
+function call(obj,method,args){
+  const run=()=>callNow(obj,method,args);
+  const p=CALLQ.then(run,run);
+  CALLQ=p.catch(()=>{});
+  return p;
+}
+async function callNow(obj,method,args){
+  const r=await fetchT(RPC,{method:'POST',
+    headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
+    body:JSON.stringify({jsonrpc:'2.0',id:Date.now(),method:'call',
+      params:[NOSID,obj,method,args||{}]})},12000);
+  if(r.status===403){needLogin();throw new Error('auth required');}
+  const j=await r.json();
+  if(j.error){
+    if(j.error.code===-32002) needLogin();
+    const e=new Error(obj+'.'+method+': '+j.error.message);e.code=j.error.code;throw e;
+  }
+  if(!j.result) throw new Error('bad response');
+  const code=j.result[0];
+  if(code===6){needLogin();throw new Error('access denied');}
+  if(code!==0){const e=new Error(obj+'.'+method+' → '+code);e.code=code;throw e;}
+  return j.result[1];
+}
+async function tryCall(obj,method,args){try{return await call(obj,method,args);}catch(e){return null;}}
+function needLogin(){
+  if(LOGIN_HOP)return;
+  LOGIN_HOP=true;stopPoll();
+  location.replace('/cgi-bin/luci/admin/dashboard');
+}
+
+/* ================= state ================= */
+let TAB='overview', POLL=5000, timer=null, PAUSED=false;
+const BW={wan:[],lan:[],prev:null};
+let PKGS=null, PKGFilter='all';
+
+/* ================= session ================= */
+$('logout').addEventListener('click',async()=>{
+  stopPoll();
+  try{await fetchT('/cgi-bin/luci/admin/logout',{method:'POST'});}catch(e){}
+  location.href='/cgi-bin/luci/admin/dashboard';
+});
+
+/* ================= tabs ================= */
+$('tabs').addEventListener('click',ev=>{
+  const b=ev.target.closest('button[data-t]');if(!b)return;
+  TAB=b.dataset.t;
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('main section').forEach(s=>s.classList.toggle('on',s.id==='s-'+TAB));
+  refresh();
+});
+
+/* ================= polling ================= */
+function startPoll(){
+  stopPoll();
+  timer=setInterval(refresh,POLL);
+}
+function stopPoll(){
+  if(timer)clearInterval(timer);timer=null;
+}
+let refreshing=false, refreshStart=0;
+async function refresh(){
+  if(LOGIN_HOP)return;
+  if(refreshing){
+    if(Date.now()-refreshStart>25000)refreshing=false; else return;
+  }
+  refreshing=true;refreshStart=Date.now();
+  $('pSpin').style.visibility='visible';
+  try{
+    await Promise.all([loadHeader(),loadBandwidth()]);
+    switch(TAB){
+      case 'overview': await Promise.all([loadOverview(),loadMounts(),loadTailscale()]);break;
+      case 'network':  await Promise.all([loadIfaces(),loadDevices(),loadNetInfo()]);break;
+      case 'wifi':     await loadWifi();break;
+      case 'clients':  await loadClients();break;
+      case 'services': await loadServices();break;
+      case 'downloads':await loadAria2();break;
+      case 'packages': if(!PKGS)await loadPackages();break;
+      case 'logs':     if(!PAUSED)await loadLogs();break;
+    }
+  }catch(e){console.warn(e);}
+  finally{$('pSpin').style.visibility='hidden';refreshing=false;}
+}
+
+/* ================= header ================= */
+let BOARD=null, LUCI=null;
+let CPU_PREV=null, CPU_CORES=null, CPU_HIST=[];
+
+async function readText(path){
+  const r=await tryCall('file','read',{path});
+  if(!r||!r.data)return null;
+  try{return atob(r.data);}catch(e){return null;}
+}
+/* Fallback for routers without the optional monitoring ubus module. */
+async function cpuFallback(si){
+  const txt=await readText('/proc/stat');
+  if(!txt)return null;
+  const m=txt.split('\n')[0].match(/^cpu\s+(.+)$/);
+  if(!m)return null;
+  const v=m[1].trim().split(/\s+/).map(Number);
+  const idle=(v[3]||0)+(v[4]||0), total=v.reduce((a,b)=>a+b,0);
+  let usage=0;
+  if(CPU_PREV&&total>CPU_PREV.total)
+    usage=Math.max(0,Math.min(100,Math.round((1-(idle-CPU_PREV.idle)/(total-CPU_PREV.total))*100)));
+  CPU_PREV={idle,total};
+  if(CPU_CORES==null){
+    const ci=await readText('/proc/cpuinfo');
+    CPU_CORES=ci?Math.max(1,(ci.match(/^processor\s*:/gm)||[]).length):1;
+  }
+  CPU_HIST.push(usage);if(CPU_HIST.length>30)CPU_HIST.shift();
+  const load=(si&&si.load)||[];
+  return {usage,cores:CPU_CORES,
+    loadavg:load.map(x=>(x/65536).toFixed(2)).join(' '),history:CPU_HIST.slice()};
+}
+async function tempFallback(){
+  for(const p of ['/sys/class/thermal/thermal_zone0/temp','/sys/class/hwmon/hwmon0/temp1_input']){
+    const s=await readText(p);
+    if(!s)continue;
+    const n=parseInt(s.trim(),10);
+    if(n>0)return {sensors:[{value:Math.round(n/1000),label:'CPU'}]};
+  }
+  return null;
+}
+
+async function loadHeader(){
+  const [inf,si,foxC,foxT]=await Promise.all([
+    tryCall('foxhound','internet'),
+    tryCall('system','info'),
+    tryCall('foxhound','cpu'),
+    tryCall('foxhound','temp')
+  ]);
+  let wan=null;
+  if(!inf)wan=await tryCall('network.interface.wan','status');
+  const status=inf?inf.status:(wan&&typeof wan.up==='boolean'?(wan.up?'Online':'Offline'):null);
+  $('pInet').className='dot '+(status==='Online'?'on':status?'off':'');
+  $('pInetV').textContent=status||'—';
+
+  const c=foxC||await cpuFallback(si);
+  const t=(foxT&&foxT.sensors&&foxT.sensors.length)?foxT:await tempFallback();
+
+  if(si){
+    $('pUp').textContent=fmtDur(si.uptime);
+    const used=si.memory.total-si.memory.available;
+    const pct=Math.round(used/si.memory.total*100);
+    $('pRam').textContent=pct+'%';
+    $('upVal').textContent=fmtDur(si.uptime);
+    $('ramVal').textContent=pct;
+    $('ramBar').style.width=pct+'%';
+    $('ramBar').parentElement.className='bar '+(pct>85?'err':pct>65?'warn':'');
+    $('ramUsed').textContent='занято '+fmtB(used);
+    $('ramTot').textContent='всего '+fmtB(si.memory.total);
+    $('ramAvail').textContent=fmtB(si.memory.available);
+    $('swapVal').textContent=si.swap.total?fmtB(si.swap.total-si.swap.free)+' / '+fmtB(si.swap.total):'нет';
+  }
+  if(c){
+    $('pCpu').textContent=c.usage+'%';
+    $('cpuVal').textContent=c.usage;
+    $('cpuCores').textContent=c.cores+' ядра';
+    $('cpuLoad').textContent=c.loadavg;
+    $('cpuKernel').textContent=(BOARD&&BOARD.kernel)||'—';
+    drawSpark($('cpuSpark'),c.history||[]);
+  }
+  if(t&&t.sensors&&t.sensors.length){
+    const s=t.sensors[0];
+    $('pTemp').textContent=s.value+'°C';
+    $('tempVal').textContent=s.value;
+    $('tempLabel').textContent=s.label;
+    const p=Math.min(100,Math.round(s.value/100*100));
+    $('tempBar').style.width=p+'%';
+    $('tempBarWrap').className='bar '+(s.value>80?'err':s.value>65?'warn':'ok');
+  }
+}
+
+/* ================= overview ================= */
+async function loadOverview(){
+  const [board,luci,ct1,ct2]=await Promise.all([
+    BOARD?Promise.resolve(BOARD):tryCall('system','board'),
+    LUCI?Promise.resolve(LUCI):tryCall('luci','getVersion'),
+    tryCall('file','read',{path:'/proc/sys/net/netfilter/nf_conntrack_count'}),
+    tryCall('file','read',{path:'/proc/sys/net/netfilter/nf_conntrack_max'})
+  ]);
+  if(board){
+    BOARD=board;
+    const name=board.hostname||board.model||'OpenWrt';
+    $('brandName').textContent=name;
+    document.title=name+' · Dashboard';
+    $('sysModel').textContent=board.model||board.board_name||'—';
+    $('sysVer').textContent=(board.release&&board.release.description)||'—';
+    $('sysKern').textContent=board.kernel||'—';
+    $('sysHost').textContent=board.hostname||'—';
+    $('cpuKernel').textContent=board.kernel||'—';
+    $('ftLeft').textContent=(board.model||'')+' · '+(board.release&&board.release.description||'')+
+      ' · LuCI '+(LUCI&&LUCI.branch?LUCI.branch.replace('LuCI ',''):'');
+  }
+  if(luci){LUCI=luci;$('sysLuci').textContent=luci.revision||'—';}
+  if(ct1&&ct2){
+    const a=+(ct1.data||'').trim(),b=+(ct2.data||'').trim();
+    $('ctVal').textContent=a+' / '+b;
+  }
+}
+
+async function loadMounts(){
+  const m=await tryCall('luci','getMountPoints');
+  const box=$('mounts');
+  if(!m||!m.result){box.innerHTML='<div class="empty">Нет данных</div>';return;}
+  const rows=m.result.filter(x=>x.size>0).map(x=>{
+    const used=x.size-x.avail,p=Math.min(100,Math.round(used/x.size*100));
+    const cls=p>90?'err':p>75?'warn':'ok';
+    return `<div style="margin-bottom:11px">
+      <div class="barlab"><span>${esc(x.mount)} <span style="color:var(--mut)">(${esc(x.device)})</span></span>
+      <span>${fmtB(used)} / ${fmtB(x.size)}</span></div>
+      <div class="bar ${cls}"><i style="width:${p}%"></i></div></div>`;
+  }).join('');
+  const usb=await tryCall('luci','getUSBDevices');
+  let extra='';
+  if(usb&&usb.devices&&usb.devices.length){
+    extra='<div class="kv"><span>USB</span><span>'+usb.devices.map(d=>esc(d.product||d.vid)).join(', ')+'</span></div>';
+  }
+  box.innerHTML=rows+extra;
+}
+
+async function loadTailscale(){
+  const box=$('tsBox');
+  const r=await tryCall('file','exec',{command:'/usr/sbin/tailscale',params:['status','--json']});
+  if(!r||r.code!==0||!r.stdout){box.innerHTML='<div class="empty">Tailscale недоступен</div>';return;}
+  let j;try{j=JSON.parse(r.stdout);}catch(e){box.innerHTML='<div class="empty">Ошибка разбора</div>';return;}
+  const st=j.BackendState||'—';
+  const cls=st==='Running'?'ok':st==='NeedsLogin'?'warn':'err';
+  const self=j.Self||{};
+  const peers=Object.values(j.Peers||{});
+  const online=peers.filter(p=>p.Online).length;
+  let html=`<div class="kv"><span>Состояние</span><span><b class="badge ${cls}">${esc(st)}</b></span></div>
+    <div class="kv"><span>Имя</span><span>${esc(self.DNSName||'—')}</span></div>
+    <div class="kv"><span>Tailscale IP</span><span>${esc((self.TailscaleIPs||[]).join(', '))}</span></div>
+    <div class="kv"><span>Peers</span><span>${online} онлайн / ${peers.length}</span></div>`;
+  if(peers.length){
+    html+='<div style="margin-top:8px;max-height:150px;overflow:auto">'+
+      peers.slice(0,12).map(p=>`<div class="kv"><span>${esc(p.HostName||p.DNSName||'?')}</span>
+        <span>${p.Online?'<b class="badge ok">on</b>':'<b class="badge">off</b>'}
+        ${esc((p.TailscaleIPs||[])[0]||'')}</span></div>`).join('')+'</div>';
+  }
+  box.innerHTML=html;
+}
+
+/* ================= bandwidth ================= */
+async function loadBandwidth(){
+  const d=await tryCall('luci-rpc','getNetworkDevices');
+  if(!d)return;
+  const now=Date.now();
+  const rx=n=>d[n]&&d[n].stats?d[n].stats.rx_bytes:0;
+  const tx=n=>d[n]&&d[n].stats?d[n].stats.tx_bytes:0;
+  const cur={wan:{r:rx('eth1'),t:tx('eth1')},lan:{r:rx('br-lan'),t:tx('br-lan')}};
+  if(BW.prev){
+    const dt=(now-BW.prev.t)/1000;
+    if(dt>0.5){
+      const wR=Math.max(0,(cur.wan.r-BW.prev.wan.r)/dt);
+      const wT=Math.max(0,(cur.wan.t-BW.prev.wan.t)/dt);
+      const lR=Math.max(0,(cur.lan.r-BW.prev.lan.r)/dt);
+      const lT=Math.max(0,(cur.lan.t-BW.prev.lan.t)/dt);
+      BW.wan.push({t:now,r:wR,x:wT});
+      BW.lan.push({t:now,r:lR,x:lT});
+      if(BW.wan.length>120)BW.wan.shift();
+      if(BW.lan.length>120)BW.lan.shift();
+      $('bwNow').textContent='↓ '+fmtSp(wR)+' · ↑ '+fmtSp(wT);
+      drawBw();
+    }
+  }
+  BW.prev={t:now,wan:cur.wan,lan:cur.lan};
+}
+function drawSpark(cv,data){
+  const dpr=window.devicePixelRatio||1,w=cv.clientWidth||260,h=46;
+  cv.width=w*dpr;cv.height=h*dpr;const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);
+  c.clearRect(0,0,w,h);if(!data.length)return;
+  const n=data.length,bw=Math.max(2,w/n-2),mx=Math.max(100,...data);
+  data.forEach((v,i)=>{
+    const bh=Math.max(2,v/mx*(h-6)),x=i*(w/n),y=h-bh-2;
+    const g=c.createLinearGradient(0,y,0,h);
+    g.addColorStop(0,v>80?'#ff5f56':v>60?'#ffc857':'#ff8a3d');
+    g.addColorStop(1,'rgba(255,138,61,.25)');
+    c.fillStyle=g;c.fillRect(x,y,bw,bh);
+  });
+}
+function drawBw(){
+  const cv=$('bwChart'),dpr=window.devicePixelRatio||1;
+  const w=cv.clientWidth||500,h=150;cv.width=w*dpr;cv.height=h*dpr;
+  const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
+  const pts=BW.wan;if(pts.length<2)return;
+  const mx=Math.max(1024,...pts.map(p=>Math.max(p.r,p.x)),
+    ...BW.lan.map(p=>Math.max(p.r,p.x)));
+  // grid
+  c.strokeStyle='rgba(255,255,255,.06)';c.lineWidth=1;c.font='10px monospace';c.fillStyle='#8b98a5';
+  for(let i=0;i<=4;i++){const y=2+i*(h-16)/4;
+    c.beginPath();c.moveTo(0,y);c.lineTo(w,y);c.stroke();
+    c.fillText(fmtSp(mx*(1-i/4)),4,y+11);}
+  const draw=(arr,color,fill)=>{
+    c.beginPath();
+    arr.forEach((p,i)=>{const x=i/(arr.length-1)*w,y=h-14-(p.r/mx)*(h-24);
+      i?c.lineTo(x,y):c.moveTo(x,y);});
+    c.strokeStyle=color;c.lineWidth=1.8;c.stroke();
+    if(fill){c.lineTo(w,h-14);c.lineTo(0,h-14);c.closePath();
+      const g=c.createLinearGradient(0,0,0,h);g.addColorStop(0,color+'44');g.addColorStop(1,color+'05');
+      c.fillStyle=g;c.fill();}
+  };
+  const drawUp=(arr,color)=>{
+    c.beginPath();
+    arr.forEach((p,i)=>{const x=i/(arr.length-1)*w,y=h-14-(p.x/mx)*(h-24);
+      i?c.lineTo(x,y):c.moveTo(x,y);});
+    c.strokeStyle=color;c.lineWidth=1.4;c.setLineDash([4,3]);c.stroke();c.setLineDash([]);
+  };
+  draw(pts,'#ff8a3d',true);drawUp(pts,'#3ddc84');
+  if(BW.lan.length>1){draw(BW.lan,'#58a6ff',false);drawUp(BW.lan,'#b083ff');}
+}
+
+/* ================= network ================= */
+async function loadIfaces(){
+  const d=await tryCall('network.interface','dump');
+  const tb=$('ifRows');
+  if(!d||!d.interface){tb.innerHTML='<tr><td colspan="5" class="empty">Нет данных</td></tr>';return;}
+  tb.innerHTML=d.interface.map(i=>{
+    const ip=(i['ipv4-address']||[]).map(a=>a.address+'/'+a.mask).join(', ')||'—';
+    const dns=(i['dns-server']||[]).join(', ')||'—';
+    const up=i.up?'<span class="badge ok">up</span>':'<span class="badge err">down</span>';
+    return `<tr><td><b>${esc(i.interface)}</b> ${up}<br>
+      <span style="color:var(--mut);font-size:11.5px">${esc(i.device||'')} · ${esc(i.proto||'')}</span></td>
+      <td>${esc(i.proto)}</td><td class="mono">${esc(ip)}</td>
+      <td class="num">${i.uptime?fmtDur(i.uptime):'—'}</td>
+      <td class="mono" style="font-size:11.5px">${esc(dns)}</td></tr>`;
+  }).join('');
+}
+async function loadDevices(){
+  const d=await tryCall('luci-rpc','getNetworkDevices');
+  const tb=$('devRows');
+  if(!d){tb.innerHTML='<tr><td colspan="5" class="empty">Нет данных</td></tr>';return;}
+  const order=['eth1','br-lan','eth0','lan1','lan2','lan3','phy0-ap0','phy1-ap0','tailscale0','lo'];
+  const keys=Object.keys(d).sort((a,b)=>(order.indexOf(a)+99)-(order.indexOf(b)+99));
+  tb.innerHTML=keys.map(k=>{
+    const v=d[k],s=v.stats||{},sp=v.link&&v.link.speed>0?v.link.speed+' Мбит/с':'—';
+    const up=v.up?'<span class="badge ok">up</span>':'<span class="badge">down</span>';
+    return `<tr><td><b>${esc(k)}</b> ${up}</td>
+      <td class="mono" style="font-size:11.5px">${esc(v.mac||'—')}</td>
+      <td class="num">${sp}</td><td class="num">${fmtB(s.rx_bytes)}</td><td class="num">${fmtB(s.tx_bytes)}</td></tr>`;
+  }).join('');
+}
+async function loadNetInfo(){
+  const [s4,ar]=await Promise.all([
+    tryCall('uci','get',{config:'samba4'}),
+    tryCall('file','exec',{command:'/sbin/ip',params:['-4','neigh','show']})
+  ]);
+  let html='';
+  if(s4&&s4.values){
+    const shares=Object.values(s4.values).filter(v=>v['.type']==='sambashare');
+    const srv=Object.values(s4.values).find(v=>v['.type']==='samba');
+    html+='<div class="kv"><span>Samba</span><span>'+
+      (srv?esc(srv.workgroup||'')+' · if: '+esc(srv.interface||''):'—')+'</span></div>';
+    shares.forEach(s=>{
+      html+=`<div class="kv"><span>Шара "${esc(s.name)}"</span><span>${esc(s.path)} ${
+        s.guest_ok==='yes'?'<b class="badge warn">guest</b>':''}</span></div>`;
+    });
+  }
+  // aria2 port check
+  try{
+    const r=await fetch('//'+location.hostname+':6800/jsonrpc',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({jsonrpc:'2.0',id:1,method:'aria2.getVersion',params:[]})});
+    const j=await r.json();
+    html+=`<div class="kv"><span>aria2 RPC :6800</span><span><b class="badge ok">v${esc((j.result||{}).version||'?')}</b></span></div>`;
+  }catch(e){html+='<div class="kv"><span>aria2 RPC :6800</span><span><b class="badge err">недоступен</b></span></div>';}
+  if(ar&&ar.code===0){
+    const lines=(ar.stdout||'').trim().split('\n').filter(Boolean);
+    html+=`<div class="kv"><span>Соседи (ARP)</span><span>${lines.length}</span></div>`+
+      lines.slice(0,6).map(l=>{const p=l.split(/\s+/);
+        return `<div class="kv"><span class="mono" style="font-size:11.5px">${esc(p[0])}</span>
+        <span class="mono" style="font-size:11.5px">${esc(p[2]||'')} ${esc(p[3]||'')}</span></div>`;}).join('');
+  }
+  $('netInfo').innerHTML=html||'<div class="empty">Нет данных</div>';
+}
+
+/* ================= wifi ================= */
+async function loadWifi(){
+  const wd=await tryCall('luci-rpc','getWirelessDevices');
+  const box=$('radioCards');
+  if(!wd){box.innerHTML='<div class="empty">Wi-Fi недоступен</div>';return;}
+  const radios=[];
+  for(const [rk,rv] of Object.entries(wd)){
+    for(const itf of (rv.interfaces||[])){
+      radios.push({rk,rv,itf});
+    }
+  }
+  box.innerHTML=radios.map(({rk,rv,itf})=>{
+    const cfg=rv.config||{},ic=itf.config||{},iw=itf.iwinfo||{};
+    const band=cfg.band==='2g'?'2.4 ГГц':cfg.band==='5g'?'5 ГГц':(cfg.band||'—');
+    const sig=iw.signal!=null?iw.signal+' dBm':'—';
+    const q=iw.quality!=null?Math.round(iw.quality/iw.quality_max*100)+'%':'—';
+    const up=rv.up?'<span class="badge ok">включён</span>':'<span class="badge err">выключен</span>';
+    return `<div class="card">
+      <h3>${band} · канал ${esc(cfg.channel||'—')} <span class="spacer"></span>${up}</h3>
+      <div class="kv"><span>SSID</span><span>${esc(ic.ssid||'—')}</span></div>
+      <div class="kv"><span>Режим</span><span>${esc(cfg.htmode||'—')} · ${esc((iw.hwmodes_text)||'')}</span></div>
+      <div class="kv"><span>BSSID</span><span>${esc(iw.bssid||'—')}</span></div>
+      <div class="kv"><span>Шифрование</span><span>${esc(ic.encryption||'—')}</span></div>
+      <div class="kv"><span>Сигнал / шум</span><span>${sig} / ${iw.noise!=null?iw.noise+' dBm':'—'}</span></div>
+      <div class="kv"><span>Качество</span><span>${q}</span></div>
+      <div class="kv"><span>Мощность</span><span>${iw.txpower!=null?iw.txpower+' dBm':'—'} · ${esc(iw.country||'—')}</span></div>
+      <div class="kv"><span>Интерфейс</span><span>${esc(itf.ifname||'—')}</span></div>
+    </div>`;
+  }).join('');
+
+  // wifi clients
+  const rows=[];let total=0;
+  for(const {rk,rv,itf} of radios){
+    const dev=itf.ifname;if(!dev)continue;
+    const al=await tryCall('iwinfo','assoclist',{device:dev});
+    const hc=await tryCall('hostapd.'+dev,'get_clients');
+    if(al&&al.results){
+      for(const c of al.results){
+        total++;
+        const h=hc&&hc.clients?hc.clients[c.mac]:null;
+        const rate=h&&h.rate?fmtSp(h.rate.rx)+' ↓ / '+fmtSp(h.rate.tx)+' ↑':'—';
+        const bars=signalBars(c.signal);
+        rows.push(`<tr>
+          <td class="mono" style="font-size:12px">${esc(c.mac)}</td>
+          <td>${esc(nameOf(c.mac))}</td>
+          <td class="num">${bars} ${c.signal} dBm</td>
+          <td class="num">${c.noise!=null?c.noise+' dBm':'—'}</td>
+          <td class="num" style="font-size:11.5px">${rate}</td>
+          <td class="num">${fmtB(c.rx&&c.rx.bytes)}</td>
+          <td class="num">${fmtB(c.tx&&c.tx.bytes)}</td>
+          <td class="num">${c.connected_time!=null?fmtDur(c.connected_time):'—'}</td>
+        </tr>`);
+      }
+    }
+  }
+  $('wifiCount').textContent=total;
+  $('wifiRows').innerHTML=rows.length?rows.join(''):
+    '<tr><td colspan="8" class="empty">Нет подключённых клиентов</td></tr>';
+}
+function signalBars(s){
+  if(s==null)return '';
+  const lvl=s>=-55?4:s>=-65?3:s>=-75?2:1;
+  let o='<span class="sig">';
+  for(let i=1;i<=4;i++){
+    const on=i<=lvl;
+    const cls=on?(lvl<=1?'on h':lvl===2?'on d':'on'):'';
+    o+=`<i class="${cls}" style="height:${4+i*3}px"></i>`;
+  }
+  return o+'</span>';
+}
+
+/* ================= clients ================= */
+let HINTS={},HINTSL={},LEASES=[],WIFICL={},ARP=[];
+function nameOf(mac){
+  mac=(mac||'').toLowerCase();
+  const h=HINTSL[mac];
+  if(h&&h.name)return h.name;
+  const l=LEASES.find(x=>(x.macaddr||'').toLowerCase()===mac);
+  if(l&&l.hostname)return l.hostname;
+  return '—';
+}
+async function loadClients(){
+  const [h,l,ar]=await Promise.all([
+    tryCall('luci-rpc','getHostHints'),
+    tryCall('luci-rpc','getDHCPLeases'),
+    tryCall('file','exec',{command:'/sbin/ip',params:['-4','neigh','show']})
+  ]);
+  HINTS=h||{};LEASES=(l&&l.dhcp_leases)||[];
+  HINTSL={};Object.keys(HINTS).forEach(m=>{HINTSL[m.toLowerCase()]=HINTS[m];});
+  ARP=(ar&&ar.code===0)?(ar.stdout||'').trim().split('\n').filter(Boolean).map(line=>{
+    const p=line.split(/\s+/);return {ip:p[0],dev:p[1],mac:p[3],state:p[4]};
+  }):[];
+
+  // gather wifi info
+  const wd=await tryCall('luci-rpc','getWirelessDevices');
+  WIFICL={};
+  if(wd)for(const rv of Object.values(wd))for(const itf of (rv.interfaces||[])){
+    const dev=itf.ifname;if(!dev)continue;
+    const al=await tryCall('iwinfo','assoclist',{device:dev});
+    if(al&&al.results)for(const c of al.results){
+      WIFICL[c.mac.toLowerCase()]={sig:c.signal,ct:c.connected_time,
+        rx:c.rx?c.rx.bytes:0,tx:c.tx?c.tx.bytes:0,
+        dev:dev,band:(rv.config||{}).band};
+    }
+  }
+
+  const map={};
+  const add=(mac,ip,src)=>{
+    mac=(mac||'').toLowerCase();if(!mac)return;
+    if(!map[mac])map[mac]={mac,ips:[],src:{}};
+    if(ip&&!map[mac].ips.includes(ip))map[mac].ips.push(ip);
+    map[mac].src[src]=1;
+  };
+  ARP.forEach(a=>add(a.mac,a.ip,'ARP'));
+  LEASES.forEach(x=>add(x.macaddr,x.ipaddr,'DHCP'));
+  Object.keys(HINTS).forEach(m=>(HINTS[m].ipaddrs||[]).filter(i=>i.startsWith('192.168')||i.startsWith('10.')||i.startsWith('172.'))
+    .forEach(i=>add(m,i,'хинты')));
+  Object.keys(WIFICL).forEach(m=>add(m,null,'Wi-Fi'));
+
+  const f=($('clFilter').value||'').toLowerCase();
+  const rows=Object.values(map).map(c=>{
+    const w=WIFICL[c.mac];
+    const lease=LEASES.find(x=>(x.macaddr||'').toLowerCase()===c.mac);
+    const nm=nameOf(c.mac);
+    const src=Object.keys(c.src).join(' + ');
+    const exp=lease?fmtDur(lease.expires):'—';
+    return {nm,c,w,src,exp,
+      key:(nm+' '+c.ips.join(' ')+' '+c.mac+' '+src).toLowerCase()};
+  }).filter(r=>!f||r.key.includes(f))
+    .sort((a,b)=>(b.w?1:0)-(a.w?1:0)
+      ||((a.nm==='—')?1:0)-((b.nm==='—')?1:0)
+      ||a.nm.localeCompare(b.nm));
+
+  $('clCount').textContent=rows.length;
+  $('clRows').innerHTML=rows.length?rows.map(r=>`<tr>
+    <td><b>${esc(r.nm)}</b></td>
+    <td class="mono">${esc(r.c.ips.join(', ')||'—')}</td>
+    <td class="mono" style="font-size:11.5px">${esc(r.c.mac)}</td>
+    <td><span class="badge">${esc(r.src)}</span></td>
+    <td class="num">${r.w?(signalBars(r.w.sig)+' '+r.w.sig+' dBm'):'—'}</td>
+    <td class="num">${r.w&&r.w.ct!=null?fmtDur(r.w.ct):'—'}</td>
+    <td class="num">${r.w?fmtB(r.w.rx):'—'}</td>
+    <td class="num">${r.w?fmtB(r.w.tx):'—'}</td>
+    <td class="num">${r.exp}</td></tr>`).join('')
+    :'<tr><td colspan="9" class="empty">Ничего не найдено</td></tr>';
+}
+$('clFilter').addEventListener('input',()=>loadClients());
+
+/* ================= services ================= */
+async function loadServices(){
+  const s=await tryCall('rc','list');
+  const box=$('svcList');
+  if(!s){box.innerHTML='<div class="empty">Нет данных</div>';return;}
+  const names=Object.keys(s).sort();
+  let run=0;
+  const html=names.map(n=>{
+    const v=s[n];
+    const isDaemon=('running' in v);
+    if(v.running)run++;
+    const badge=v.running?'<span class="badge ok">работает</span>':
+      isDaemon?'<span class="badge err">остановлен</span>':
+      v.enabled?'<span class="badge info">автозапуск</span>':'<span class="badge">выкл</span>';
+    const autostart=v.enabled?'<span class="badge">start:'+v.start+'</span>':'';
+    let acts='';
+    if(isDaemon){
+      acts=`<button class="btn mini" data-s="${n}" data-a="start">▶</button>
+            <button class="btn mini" data-s="${n}" data-a="stop">■</button>
+            <button class="btn mini" data-s="${n}" data-a="restart">↻</button>`;
+    }
+    return `<div class="svc"><span class="nm">${esc(n)}</span>${badge}${autostart}
+      <span class="act">${acts}</span></div>`;
+  }).join('');
+  box.innerHTML=html;
+  $('svcRun').textContent=run+' работает';
+  $('svcTotal').textContent=names.length+' всего';
+}
+$('svcList').addEventListener('click',async ev=>{
+  const b=ev.target.closest('button[data-a]');if(!b)return;
+  const n=b.dataset.s,a=b.dataset.a;
+  if(a==='stop'&&!confirm('Остановить сервис "'+n+'"?'))return;
+  if(a==='restart'&&!confirm('Перезапустить сервис "'+n+'"?'))return;
+  b.disabled=true;
+  try{
+    await call('rc','init',{name:n,action:a});
+    toast(n+': '+({start:'запуск',stop:'остановка',restart:'перезапуск'}[a])+' отправлен','ok');
+    setTimeout(loadServices,900);
+  }catch(e){toast(n+': ошибка '+e.message,'err');b.disabled=false;}
+});
+$('svcRefresh').addEventListener('click',loadServices);
+
+/* ================= aria2 ================= */
+async function arCall(method,params){
+  const r=await fetch('//'+location.hostname+':6800/jsonrpc',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({jsonrpc:'2.0',id:Date.now(),method,params:params||[]})});
+  const j=await r.json();
+  if(j.error)throw new Error(j.error.message);
+  return j.result;
+}
+async function loadAria2(){
+  try{
+    const [g,a,w,st]=await Promise.all([
+      arCall('aria2.getGlobalStat'),arCall('aria2.tellActive'),
+      arCall('aria2.tellWaiting',[0,50]),arCall('aria2.tellStopped',[0,50])
+    ]);
+    $('arState').innerHTML='<b class="badge ok">подключён</b>';
+    $('arDown').textContent=fmtSp(g.downloadSpeed);
+    $('arUp').textContent=fmtSp(g.uploadSpeed);
+    $('arAct').textContent=g.numActive;
+    $('arWait').textContent=g.numWaiting+' / '+g.numStopped;
+    const all=[...a.map(x=>({...x,st:'active'})),...w.map(x=>({...x,st:'waiting'})),
+      ...st.map(x=>({...x,st:x.status||'stopped'}))];
+    $('arRows').innerHTML=all.length?all.map(t=>{
+      const tot=+t.totalLength||0,com=+t.completedLength||0;
+      const p=tot?Math.round(com/tot*100):(t.st==='complete'?100:0);
+      const name=(t.files&&t.files[0]&&(t.files[0].bittorrent&&t.files[0].bittorrent.name)||t.files&&t.files[0]&&t.files[0].path)||t.gid;
+      const cls=t.st==='active'?'ok':t.st==='complete'?'info':t.st==='error'?'err':'';
+      const eta=(t.st==='active'&&+t.downloadSpeed>0&&tot>com)?fmtDur((tot-com)/t.downloadSpeed):'—';
+      return `<tr><td title="${esc(name)}">${esc(String(name).slice(-70))}</td>
+        <td><span class="badge ${cls}">${esc(t.st)}</span></td>
+        <td class="num">${tot?p+'% ('+fmtB(com)+' / '+fmtB(tot)+')':p+'%'}</td>
+        <td class="num">${t.st==='active'?fmtSp(t.downloadSpeed):'—'}</td>
+        <td class="num">${eta}</td></tr>`;
+    }).join(''):'<tr><td colspan="5" class="empty">Задач нет</td></tr>';
+  }catch(e){
+    $('arState').innerHTML='<b class="badge err">оффлайн</b>';
+    $('arRows').innerHTML='<tr><td colspan="5" class="empty">aria2 недоступен: '+esc(e.message)+'</td></tr>';
+  }
+}
+$('arAdd').addEventListener('click',async()=>{
+  const u=$('arUri').value.trim();if(!u)return;
+  try{await arCall('aria2.addUri',[[u]]);$('arUri').value='';toast('Добавлено в aria2','ok');loadAria2();}
+  catch(e){toast('aria2: '+e.message,'err');}
+});
+
+/* ================= packages ================= */
+async function loadPackages(){
+  const r=await tryCall('rpc-sys','packagelist');
+  if(!r||!r.packages){$('pkRows').innerHTML='<tr><td colspan="3" class="empty">Ошибка загрузки</td></tr>';return;}
+  PKGS=Object.entries(r.packages).sort((a,b)=>a[0].localeCompare(b[0]));
+  renderPackages();
+}
+function pkgCat(n){
+  if(n.startsWith('luci'))return 'luci';
+  if(n.startsWith('kmod'))return 'kmod';
+  if(n.startsWith('lib')||n.startsWith('libustream'))return 'lib';
+  if(/^(base-files|libc|libgcc|kernel|procd|uci|netifd|firewall|dnsmasq|dropbear|fstools|mtd|urngd|urandom-seed|zram-swap|block-mount|ca-bundle|apk-mbedtls|shadow-useradd|uboot-envtools|e2fsprogs|fitblk|openssh-sftp-server|ppp|odhcp|wpad)/.test(n))return 'base';
+  return 'app';
+}
+function renderPackages(){
+  if(!PKGS)return;
+  const f=$('pkFilter').value.toLowerCase();
+  const rows=PKGS.filter(([n])=>{
+    if(PKGFilter!=='all'&&pkgCat(n)!==PKGFilter)return false;
+    return !f||n.toLowerCase().includes(f);
+  });
+  $('pkCount').textContent=rows.length+' / '+PKGS.length;
+  const catName={luci:'LuCI',kmod:'ядро',lib:'библиотека',app:'приложение',base:'система'};
+  $('pkRows').innerHTML=rows.length?rows.map(([n,v])=>{
+    const c=pkgCat(n);
+    const hl=f?n.replace(new RegExp('('+f.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<b style="color:var(--acc)">$1</b>'):esc(n);
+    return `<tr><td class="mono">${hl}</td><td class="mono" style="font-size:12px">${esc(v)}</td>
+      <td><span class="badge ${c==='luci'?'acc':c==='app'?'info':''}">${catName[c]}</span></td></tr>`;
+  }).join(''):'<tr><td colspan="3" class="empty">Ничего не найдено</td></tr>';
+}
+$('pkFilter').addEventListener('input',renderPackages);
+$('pkRefresh').addEventListener('click',async()=>{PKGS=null;await loadPackages();});
+$('pkChips').addEventListener('click',ev=>{
+  const c=ev.target.closest('.chip');if(!c)return;
+  PKGFilter=c.dataset.f;
+  document.querySelectorAll('#pkChips .chip').forEach(x=>x.classList.toggle('on',x===c));
+  renderPackages();
+});
+
+/* ================= logs ================= */
+let LOGS=[];
+const PRIO={0:'emerg',1:'alert',2:'crit',3:'err',4:'warn',5:'notice',6:'info',7:'debug'};
+async function loadLogs(){
+  const r=await tryCall('log','read',{lines:300,stream:false,oneshot:true});
+  if(!r||!r.log)return;
+  LOGS=r.log.slice().reverse();
+  renderLogs();
+}
+function renderLogs(){
+  const f=$('lgFilter').value.toLowerCase();
+  const min=+$('lgLevel').value;
+  const rows=LOGS.filter(l=>{
+    const lvl=l.priority%8;
+    return !(min&&lvl>min);
+  }).filter(l=>!f||String(l.msg).toLowerCase().includes(f));
+  $('lgCount').textContent=rows.length;
+  $('logBox').innerHTML=rows.length?rows.map(l=>{
+    const lvl=l.priority%8;
+    return `<div class="logline l${lvl}"><span class="t">${fmtTime(l.time)}</span>
+      <span class="lv">${PRIO[lvl]||lvl}</span><span>${esc(l.msg)}</span></div>`;
+  }).join(''):'<div class="empty">Пусто</div>';
+}
+$('lgFilter').addEventListener('input',renderLogs);
+$('lgLevel').addEventListener('change',renderLogs);
+$('lgRefresh').addEventListener('click',loadLogs);
+$('lgPause').addEventListener('click',()=>{
+  PAUSED=!PAUSED;$('lgPause').textContent=PAUSED?'Продолжить':'Пауза';
+  $('lgPause').classList.toggle('on',PAUSED);
+});
+
+/* ================= actions ================= */
+$('actWifi').addEventListener('click',async()=>{
+  if(!confirm('Перезапустить Wi-Fi? На несколько секунд пропадёт беспроводное подключение.'))return;
+  try{await call('file','exec',{command:'/sbin/wifi'});toast('Wi-Fi перезапускается…','ok');}
+  catch(e){toast('Ошибка: '+e.message,'err');}
+});
+$('actFw').addEventListener('click',async()=>{
+  if(!confirm('Перезапустить firewall?'))return;
+  try{await call('file','exec',{command:'/etc/init.d/firewall',params:['restart']});
+    toast('Firewall перезапущен','ok');}
+  catch(e){toast('Ошибка: '+e.message,'err');}
+});
+$('actReboot').addEventListener('click',async()=>{
+  if(!confirm('Перезагрузить роутер? Соединение будет потеряно.'))return;
+  if(!confirm('Точно перезагрузить?'))return;
+  try{await call('system','reboot',{});toast('Перезагрузка…','ok');stopPoll();}
+  catch(e){toast('Ошибка: '+e.message,'err');}
+});
+
+/* ================= resize ================= */
+let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{
+  if(BW.wan.length)drawBw();
+},200);});
+
+/* ================= init ================= */
+(async function init(){
+  startPoll();
+  await refresh();
+})();
+</script>
+</body>
+</html>

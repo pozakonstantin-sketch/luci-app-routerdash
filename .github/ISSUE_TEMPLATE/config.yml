@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Документация и FAQ
+    url: https://github.com/pozakonstantin-sketch/luci-app-routerdash/wiki
+    about: Установка, обновление, частые вопросы и скриншоты
+  - name: Релизы
+    url: https://github.com/pozakonstantin-sketch/luci-app-routerdash/releases
+    about: Скачать последнюю версию пакета
+  - name: Как помочь проекту
+    url: https://github.com/pozakonstantin-sketch/luci-app-routerdash/blob/main/CONTRIBUTING.md
+    about: Сборка из исходников и правила для пул-реквестов

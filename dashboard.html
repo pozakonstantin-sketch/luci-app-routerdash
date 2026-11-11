@@ -67,12 +67,11 @@ header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px
 .btn.danger:hover{border-color:var(--err);color:var(--err)}
 .btn.mini{padding:3px 9px;font-size:11.5px;border-radius:6px}
 .btn:disabled{opacity:.45;cursor:default}
-.btn.power{padding:9px 16px;font-size:13px;font-weight:600;letter-spacing:.2px;
+.btn.power{padding:6px 13px;font-size:12.5px;font-weight:600;letter-spacing:.2px;
   border:1px solid rgba(255,95,86,.55);color:#ff9a94;
   background:linear-gradient(180deg,rgba(255,95,86,.18),rgba(255,95,86,.07));
-  box-shadow:0 6px 20px rgba(255,95,86,.14)}
+  box-shadow:0 4px 16px rgba(255,95,86,.16)}
 .btn.power:hover{border-color:var(--err);color:#fff;background:linear-gradient(180deg,#ff6f66,#e0443d)}
-#powerBar{display:flex;justify-content:flex-end;padding:10px 20px 0}
 
 nav{display:flex;gap:6px;padding:12px 20px 0;overflow-x:auto}
 nav button{padding:8px 15px;border-radius:9px 9px 0 0;border:1px solid transparent;border-bottom:0;
@@ -224,6 +223,7 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
     <div class="pill">🧠 RAM <b id="pRam">…</b></div>
     <div class="pill">⏱ <b id="pUp">…</b></div>
     <div class="pill"><span class="spin" id="pSpin"></span></div>
+    <button class="btn power" id="actRebootTop">⏻ Перезагрузка</button>
     <button class="btn danger" id="logout">Выйти</button>
   </div>
 </header>
@@ -253,10 +253,6 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
   <a class="qn" href="/cgi-bin/luci/admin/services/tachyon">🛰 Tachyon</a>
   <a class="qn" href="/cgi-bin/luci/admin/vpn/tailscale/setting">🌐 Tailscale</a>
   <a class="qn" href="/cgi-bin/luci/admin/status/logs/syslog">📜 Логи</a>
-</div>
-
-<div id="powerBar">
-  <button class="btn power" id="actRebootTop">⏻ Перезагрузить роутер</button>
 </div>
 
 <main>
@@ -340,7 +336,6 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
         <button class="btn" id="actWifi">Перезапустить Wi-Fi</button>
         <button class="btn" id="actFw">Перезапустить firewall</button>
-        <button class="btn danger" id="actReboot">Перезагрузка</button>
       </div>
     </div>
   </div>
@@ -485,7 +480,7 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
 
 <footer>
   <div id="ftLeft">OpenWrt · загрузка…</div>
-  <div>RouterDash 1.3.0 · данные через ubus JSON-RPC</div>
+  <div>RouterDash 1.3.1 · данные через ubus JSON-RPC</div>
 </footer>
 
 <div id="toast"></div>
@@ -593,6 +588,8 @@ async function refresh(){
   $('pSpin').style.visibility='visible';
   try{
     await Promise.all([loadHeader(),loadBandwidth()]);
+    /* Держим карточку состояния в одном такте с верхними индикаторами. */
+    if(TAB==='overview')renderHealth();
     switch(TAB){
       case 'overview': await Promise.all([loadOverview(),loadMounts(),loadTailscale()]);break;
       case 'network':  await Promise.all([loadIfaces(),loadDevices(),loadNetInfo()]);break;
@@ -655,7 +652,21 @@ async function tempFallback(){
   return null;
 }
 
+/* Футер зависит только от системы, поэтому обновляем его на любой вкладке. */
+function setFooter(board){
+  $('ftLeft').textContent=(board.model||'')+' · '+
+    ((board.release&&board.release.description)||'')+
+    ' · LuCI '+(LUCI&&LUCI.branch?LUCI.branch.replace('LuCI ',''):'');
+}
 async function loadHeader(){
+  if(!BOARD||!LUCI){
+    const [b,l]=await Promise.all([
+      BOARD?Promise.resolve(BOARD):tryCall('system','board'),
+      LUCI?Promise.resolve(LUCI):tryCall('luci','getVersion')
+    ]);
+    if(b)BOARD=b; if(l)LUCI=l;
+  }
+  if(BOARD)setFooter(BOARD);
   const [inf,si,foxC,foxT]=await Promise.all([
     tryCall('foxhound','internet'),
     tryCall('system','info'),
@@ -730,8 +741,7 @@ async function loadOverview(){
     $('sysKern').textContent=board.kernel||'—';
     $('sysHost').textContent=board.hostname||'—';
     $('cpuKernel').textContent=board.kernel||'—';
-    $('ftLeft').textContent=(board.model||'')+' · '+(board.release&&board.release.description||'')+
-      ' · LuCI '+(LUCI&&LUCI.branch?LUCI.branch.replace('LuCI ',''):'');
+    setFooter(board);
   }
   if(luci){LUCI=luci;$('sysLuci').textContent=luci.revision||'—';}
   if(ct1&&ct2){
@@ -1338,7 +1348,6 @@ async function doReboot(){
   try{await call('system','reboot',{});toast('Перезагрузка…','ok');stopPoll();}
   catch(e){toast('Ошибка: '+e.message,'err');}
 }
-$('actReboot').addEventListener('click',doReboot);
 $('actRebootTop').addEventListener('click',doReboot);
 
 /* ================= resize ================= */

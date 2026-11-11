@@ -26,7 +26,7 @@ DIST = os.path.join(ROOT, "dist")
 SRC_HTML = os.path.join(ROOT, os.pardir, "dashboard.html")
 
 NAME = "luci-app-routerdash"
-VERSION = "1.3.0-r1"
+VERSION = "1.3.1-r1"
 ARCH = "noarch"
 DESCRIPTION = ("Тёмный веб-дашборд OpenWrt: мониторинг, Wi-Fi, клиенты, "
                "сервисы, загрузки, пакеты и логи.")

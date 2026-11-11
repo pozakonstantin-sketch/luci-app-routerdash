@@ -1,0 +1,98 @@
+name: Сообщение об ошибке
+description: Что-то не работает или выглядит неправильно
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за сообщение! Перед созданием issue загляните в
+        [FAQ](https://github.com/pozakonstantin-sketch/luci-app-routerdash/wiki/FAQ)
+        и проверьте, нет ли уже похожего issue.
+
+  - type: input
+    id: model
+    attributes:
+      label: Модель роутера
+      placeholder: CMCC RAX3000M
+    validations:
+      required: true
+
+  - type: input
+    id: openwrt
+    attributes:
+      label: Версия OpenWrt
+      description: Вывод `ubus call system board | grep release` или `cat /etc/openwrt_release`
+      placeholder: OpenWrt 25.12.5 r33051-f5dae5ece4
+    validations:
+      required: true
+
+  - type: input
+    id: package
+    attributes:
+      label: Версия пакета
+      description: Вывод `apk list -I | grep routerdash`
+      placeholder: luci-app-routerdash-1.3.1-r1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Раздел дашборда
+      options:
+        - Обзор / Общее состояние
+        - Сеть
+        - Wi-Fi
+        - Клиенты
+        - Сервисы
+        - Загрузки
+        - Пакеты
+        - Логи
+        - VPN / Tailscale / Tachyon
+        - Установка или обновление
+        - Другое
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: Что произошло
+      description: Опишите проблему и ожидаемое поведение
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как воспроизвести
+      placeholder: |
+        1. Открыть вкладку …
+        2. Нажать …
+        3. Увидеть …
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи и ошибки
+      description: |
+        Приложите `logread | tail -50` и ошибки из консоли браузера
+        (F12 → Console). Тексты и скриншоты перетащите в это поле.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверено
+      options:
+        - label: Пакет установлен на OpenWrt 24.10+ с LuCI
+          required: true
+        - label: Проблема воспроизводится после обновления страницы с очисткой кэша
+          required: false
+        - label: Я поискал похожие issue и не нашёл дубликат
+          required: true

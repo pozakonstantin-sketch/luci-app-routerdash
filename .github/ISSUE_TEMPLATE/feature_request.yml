@@ -1,0 +1,63 @@
+name: Предложение
+description: Идея новой возможности или улучшения
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Опишите задачу, а не готовое решение — так проще подобрать
+        лучший способ реализации.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу это решает
+      description: Что сейчас неудобно или чего не хватает?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Предлагаемое решение
+      description: Как это могло бы выглядеть или работать?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы
+      description: Какие ещё варианты вы рассматривали?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Раздел
+      options:
+        - Обзор / Общее состояние
+        - Сеть
+        - Wi-Fi
+        - Клиенты
+        - Сервисы
+        - Загрузки
+        - Пакеты
+        - Логи
+        - VPN / Tailscale / Tachyon
+        - Установка или обновление
+        - Внешний вид
+        - Документация
+        - Другое
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверено
+      options:
+        - label: Я поискал похожие предложения и не нашёл дубликат
+          required: true

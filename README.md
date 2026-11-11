@@ -158,3 +158,8 @@ docs/screens/                      скриншоты разделов
 ## Лицензия
 
 MIT — см. [LICENSE](LICENSE).
+
+---
+
+**Документация:** [Wiki](https://github.com/pozakonstantin-sketch/luci-app-routerdash/wiki) ·
+[FAQ](docs/FAQ.md) · [Changelog](CHANGELOG.md) · [Как помочь](CONTRIBUTING.md)

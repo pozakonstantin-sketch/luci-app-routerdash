@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -42,10 +43,14 @@ class MainActivity : ComponentActivity() {
 private enum class Screen(val title: String) {
     OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), SERVICES("Службы"), LOGS("Журнал")
 }
+private data class TrafficPoint(val rx: Long, val tx: Long)
 private data class Snapshot(
     val board: JSONObject? = null, val info: JSONObject? = null,
     val network: JSONObject? = null, val devices: JSONObject? = null,
-    val services: JSONObject? = null, val logs: JSONObject? = null
+    val services: JSONObject? = null, val logs: JSONObject? = null,
+    val cpuRaw: String? = null, val networkDevices: JSONObject? = null,
+    val cpuPercent: Int? = null, val rxRate: Long? = null, val txRate: Long? = null,
+    val trafficHistory: List<TrafficPoint> = emptyList()
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,6 +67,9 @@ private fun RouterDashApp() {
     var error by remember { mutableStateOf<String?>(null) }
     var selected by rememberSaveable { mutableStateOf(Screen.OVERVIEW) }
     var snapshot by remember { mutableStateOf(Snapshot()) }
+    var previousCpu by remember { mutableStateOf<LongArray?>(null) }
+    var previousTraffic by remember { mutableStateOf<LongArray?>(null) }
+    var previousTrafficAt by remember { mutableLongStateOf(0L) }
     var api by remember { mutableStateOf<RouterApi?>(null) }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -79,12 +87,48 @@ private fun RouterDashApp() {
                     when (screen) {
                         Screen.OVERVIEW -> snapshot.copy(
                             board = client.call("system", "board"),
-                            info = client.call("system", "info")
+                            info = client.call("system", "info"),
+                            cpuRaw = readUbusFile(client, "/proc/stat"),
+                            networkDevices = client.call("luci-rpc", "getNetworkDevices")
                         )
                         Screen.NETWORK -> snapshot.copy(network = client.call("network.interface", "dump"))
                         Screen.DEVICES -> snapshot.copy(devices = client.call("luci-rpc", "getDHCPLeases"))
                         Screen.SERVICES -> snapshot.copy(services = client.call("rc", "list"))
                         Screen.LOGS -> snapshot.copy(logs = client.call("log", "read", JSONObject().put("lines", 100)))
+                    }
+                }
+                if (screen == Screen.OVERVIEW) {
+                    val ticks = parseCpuTicks(snapshot.cpuRaw)
+                    val oldTicks = previousCpu
+                    val cpu = if (ticks != null && oldTicks != null && ticks[0] > oldTicks[0]) {
+                        val totalDelta = ticks[0] - oldTicks[0]
+                        val idleDelta = ticks[1] - oldTicks[1]
+                        (((totalDelta - idleDelta).coerceAtLeast(0L) * 100L) / totalDelta).toInt().coerceIn(0, 100)
+                    } else null
+                    if (ticks != null) previousCpu = ticks
+
+                    val devices = snapshot.networkDevices
+                    val wanStats = devices?.optJSONObject("eth1")?.optJSONObject("stats")
+                    val counters = if (wanStats != null) longArrayOf(
+                        wanStats.optLong("rx_bytes"), wanStats.optLong("tx_bytes")
+                    ) else null
+                    val now = System.currentTimeMillis()
+                    val oldCounters = previousTraffic
+                    val dt = (now - previousTrafficAt).coerceAtLeast(1L)
+                    val rx = if (counters != null && oldCounters != null && counters[0] >= oldCounters[0])
+                        ((counters[0] - oldCounters[0]) * 1000L / dt) else null
+                    val tx = if (counters != null && oldCounters != null && counters[1] >= oldCounters[1])
+                        ((counters[1] - oldCounters[1]) * 1000L / dt) else null
+                    if (counters != null) {
+                        previousTraffic = counters
+                        previousTrafficAt = now
+                    }
+                    if (cpu != null || rx != null || tx != null) {
+                        val history = if (rx != null && tx != null)
+                            (snapshot.trafficHistory + TrafficPoint(rx, tx)).takeLast(36)
+                        else snapshot.trafficHistory
+                        snapshot = snapshot.copy(cpuPercent = cpu ?: snapshot.cpuPercent,
+                            rxRate = rx, txRate = tx, trafficHistory = history)
                     }
                 }
             } catch (e: Exception) {
@@ -117,6 +161,13 @@ private fun RouterDashApp() {
             } catch (e: Exception) {
                 error = e.message ?: "Не удалось подключиться"; connected = false
             } finally { loading = false }
+        }
+    }
+
+    LaunchedEffect(connected, selected) {
+        while (connected) {
+            refresh(selected)
+            delay(5000)
         }
     }
 
@@ -238,20 +289,19 @@ private fun OverviewScreen(s: Snapshot) {
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                GaugeCard("CPU", s.cpuPercent?.let { "$it%" } ?: "—",
+                    s.cpuPercent?.div(100f) ?: 0f, "Загрузка процессора", Modifier.weight(1f), MaterialTheme.colorScheme.secondary)
                 GaugeCard("RAM", if (total > 0) "${(ramPercent * 100).toInt()}%" else "—",
                     if (total > 0) ramPercent else 0f, "Используется", Modifier.weight(1f), MaterialTheme.colorScheme.primary)
-                InfoCard("Нагрузка", Modifier.weight(1f)) {
-                    Text(load, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.secondary)
-                    Text("Load average · 1 мин", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(10.dp))
-                    Text("Аптайм", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(info?.optLong("uptime")?.let { duration(it) } ?: "—",
-                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
             }
         }
+        item {
+            InfoCard("Нагрузка и время работы") {
+                InfoLine("Load average · 1 мин", load)
+                InfoLine("Аптайм", info?.optLong("uptime")?.let { duration(it) } ?: "—")
+            }
+        }
+        item { TrafficCard(s.trafficHistory, s.rxRate, s.txRate) }
         item {
             InfoCard("Память") {
                 InfoLine("Занято", if (total > 0) formatBytes(used) else "—")
@@ -397,6 +447,44 @@ private fun GaugeCard(title: String, value: String, progress: Float, caption: St
 }
 
 @Composable
+private fun TrafficCard(history: List<TrafficPoint>, rx: Long?, tx: Long?) {
+    InfoCard("Интернет · WAN (eth1)") {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column {
+                Text("↓ Приём", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall)
+                Text(rx?.let { formatRate(it) } ?: "Сбор данных…",
+                    color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("↑ Передача", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall)
+                Text(tx?.let { formatRate(it) } ?: "Сбор данных…",
+                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            }
+        }
+        androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(112.dp)) {
+            if (history.size < 2) return@Canvas
+            val maxValue = (history.maxOf { maxOf(it.rx, it.tx) }).coerceAtLeast(1L).toFloat()
+            val step = size.width / (history.size - 1).toFloat()
+            fun drawSeries(selector: (TrafficPoint) -> Long, color: androidx.compose.ui.graphics.Color) {
+                val path = androidx.compose.ui.graphics.Path()
+                history.forEachIndexed { index, point ->
+                    val x = index * step
+                    val y = size.height - (selector(point).toFloat() / maxValue) * (size.height - 8.dp.toPx()) - 4.dp.toPx()
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(path, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+            }
+            drawSeries({ it.rx }, MaterialTheme.colorScheme.secondary)
+            drawSeries({ it.tx }, MaterialTheme.colorScheme.primary)
+        }
+        Text(if (history.size < 2) "График появится после второго замера" else "Скорость по интервалам опроса · 5 секунд",
+            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
 private fun MetricCard(title: String, value: String, modifier: Modifier = Modifier) {
     ElevatedCard(modifier) {
         Column(Modifier.padding(16.dp)) {
@@ -497,6 +585,28 @@ private class RouterApi(val baseUrl: String) {
             return text
         }
     }
+}
+
+private fun readUbusFile(api: RouterApi, path: String): String? {
+    return runCatching {
+        val response = api.call("file", "read", JSONObject().put("path", path))
+        val encoded = response.optString("data")
+        if (encoded.isBlank()) null else String(android.util.Base64.decode(encoded, android.util.Base64.DEFAULT))
+    }.getOrNull()
+}
+
+private fun parseCpuTicks(raw: String?): LongArray? {
+    val line = raw?.lineSequence()?.firstOrNull { it.startsWith("cpu ") } ?: return null
+    val values = line.trim().split(Regex("\\s+")).drop(1).mapNotNull { it.toLongOrNull() }
+    if (values.size < 5) return null
+    val total = values.sum()
+    val idle = values[3] + values[4]
+    return longArrayOf(total, idle)
+}
+
+private fun formatRate(bytesPerSecond: Long): String {
+    if (bytesPerSecond < 1024) return "$bytesPerSecond Б/с"
+    return formatBytes(bytesPerSecond) + "/с"
 }
 
 private fun formatBytes(bytes: Long): String {

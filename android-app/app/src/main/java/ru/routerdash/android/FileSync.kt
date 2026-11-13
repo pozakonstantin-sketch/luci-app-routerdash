@@ -68,8 +68,12 @@ internal object SftpFileSync {
             when {
                 l == null -> { action = SyncAction.DOWNLOAD; note = "Файл есть только на SSD" }
                 r == null -> { action = SyncAction.UPLOAD; note = "Файл есть только на телефоне" }
-                l.size == r.size && kotlin.math.abs(l.modified - r.modified) <= 2000L -> {
+                l.size == r.size && l.modified > 0L && r.modified > 0L &&
+                    kotlin.math.abs(l.modified - r.modified) <= 2000L -> {
                     action = SyncAction.SAME; note = "Файлы совпадают"
+                }
+                l.modified <= 0L || r.modified <= 0L -> {
+                    action = SyncAction.CONFLICT; note = "Хранилище не сообщает время изменения — выбери версию вручную"
                 }
                 l.modified > r.modified + 2000L -> { action = SyncAction.UPLOAD; note = "На телефоне версия новее" }
                 r.modified > l.modified + 2000L -> { action = SyncAction.DOWNLOAD; note = "На SSD версия новее" }
@@ -204,7 +208,7 @@ internal fun SyncScreen(sshConnected: Boolean, ssh: SshTerminal?, onOpenSsh: () 
             }
             syncing = false
             progressText = "Передача завершена · успешно ${selected.size - failures}, ошибок $failures"
-            scanFiles()
+            if (failures == 0) scanFiles()
         }
     }
 

@@ -2,6 +2,9 @@ package ru.routerdash.android
 
 import android.os.Build
 import android.os.Bundle
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,9 +37,89 @@ import java.net.URI
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
+    private val securityPrefs by lazy { getSharedPreferences("routerdash_security", MODE_PRIVATE) }
+    private var shouldAuthenticate = true
+    private var promptVisible = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { RouterDashApp() }
+        setContent { RouterDashApp(onEnableBiometric = { enableBiometricLock() }) }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (securityPrefs.getBoolean("biometric_enabled", false) && shouldAuthenticate) {
+            authenticateBiometric()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (securityPrefs.getBoolean("biometric_enabled", false)) shouldAuthenticate = true
+    }
+
+    private fun enableBiometricLock() {
+        val manager = BiometricManager.from(this)
+        val status = manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        if (status != BiometricManager.BIOMETRIC_SUCCESS) {
+            val message = when (status) {
+                BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "Сначала добавь отпечаток пальца в настройках телефона."
+                BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "На устройстве нет поддерживаемого биометрического датчика."
+                BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "Датчик отпечатка сейчас недоступен."
+                else -> "Биометрическая авторизация недоступна (код $status)."
+            }
+            android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        showBiometricPrompt(
+            title = "Включить вход по отпечатку",
+            subtitle = "Подтверди личность, чтобы включить защиту RouterDash",
+            onSuccess = {
+                securityPrefs.edit().putBoolean("biometric_enabled", true).apply()
+                shouldAuthenticate = false
+                android.widget.Toast.makeText(this, "Защита отпечатком включена", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    private fun authenticateBiometric() {
+        if (promptVisible) return
+        showBiometricPrompt(
+            title = "Разблокировать RouterDash",
+            subtitle = "Используй отпечаток пальца для продолжения",
+            onSuccess = { shouldAuthenticate = false },
+            onFailure = { finish() }
+        )
+    }
+
+    private fun showBiometricPrompt(
+        title: String,
+        subtitle: String,
+        onSuccess: () -> Unit,
+        onFailure: () -> Unit = {}
+    ) {
+        if (promptVisible) return
+        promptVisible = true
+        val executor = ContextCompat.getMainExecutor(this)
+        val prompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                promptVisible = false
+                onSuccess()
+            }
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                promptVisible = false
+                if (errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON &&
+                    errorCode != BiometricPrompt.ERROR_USER_CANCELED) onFailure()
+                else if (securityPrefs.getBoolean("biometric_enabled", false)) finish()
+            }
+        })
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(title)
+            .setSubtitle(subtitle)
+            .setNegativeButtonText("Отмена")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            .build()
+        prompt.authenticate(info)
     }
 }
 
@@ -58,7 +141,7 @@ private data class Snapshot(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RouterDashApp() {
+private fun RouterDashApp(onEnableBiometric: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("routerdash", 0) }
     val scope = rememberCoroutineScope()
@@ -207,6 +290,9 @@ private fun RouterDashApp() {
                             }
                         },
                         actions = {
+                            IconButton(onClick = onEnableBiometric) {
+                                Icon(Icons.Outlined.Fingerprint, contentDescription = "Включить вход по отпечатку")
+                            }
                             if (loading) CircularProgressIndicator(Modifier.size(20.dp))
                             IconButton(onClick = { refresh() }) { Text("↻", style = MaterialTheme.typography.headlineSmall) }
                             IconButton(onClick = { connected = false; api = null }) {

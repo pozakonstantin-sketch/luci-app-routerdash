@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -43,6 +44,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
 import java.util.concurrent.TimeUnit
+import com.jcraft.jsch.JSch
+import com.jcraft.jsch.ChannelShell
+import com.jcraft.jsch.Session
+import java.io.InputStream
+import java.io.OutputStream
 
 class MainActivity : FragmentActivity() {
     private val securityPrefs by lazy { getSharedPreferences("routerdash_security", MODE_PRIVATE) }
@@ -134,7 +140,7 @@ class MainActivity : FragmentActivity() {
 }
 
 private enum class Screen(val title: String) {
-    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), PACKAGES("Пакеты"), DOWNLOADS("Загрузки"), SERVICES("Службы"), LOGS("Журнал"), SETTINGS("Настройки")
+    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), PACKAGES("Пакеты"), DOWNLOADS("Загрузки"), SERVICES("Службы"), VPN("VPN"), SSH("SSH-терминал"), LOGS("Журнал"), SETTINGS("Настройки")
 }
 private data class TrafficPoint(val rx: Long, val tx: Long)
 private data class Snapshot(
@@ -143,6 +149,7 @@ private data class Snapshot(
     val services: JSONObject? = null, val logs: JSONObject? = null,
     val storage: JSONArray? = null, val storageError: String? = null,
     val packages: JSONObject? = null, val downloads: JSONObject? = null,
+    val vpnStatus: String? = null,
     val cpuRaw: String? = null, val networkDevices: JSONObject? = null,
     val processes: String? = null, val logsError: String? = null,
     val cpuPercent: Int? = null, val rxRate: Long? = null, val txRate: Long? = null,
@@ -171,6 +178,10 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
     var previousTrafficAt by remember { mutableLongStateOf(0L) }
     var api by remember { mutableStateOf<RouterApi?>(null) }
     var showNavigationSheet by remember { mutableStateOf(false) }
+    var sshSession by remember { mutableStateOf<SshTerminal?>(null) }
+    var sshConnected by remember { mutableStateOf(false) }
+    var sshConnecting by remember { mutableStateOf(false) }
+    var sshOutput by remember { mutableStateOf("RouterDash SSH · готов к подключению\n") }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         error = if (granted) "Разрешение получено. Нажми «Подключиться» ещё раз."

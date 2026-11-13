@@ -11,4 +11,4 @@
     android:description="@string/routerdash_widget_description"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:updatePeriodMillis="0" />
+    android:updatePeriodMillis="1800000" />

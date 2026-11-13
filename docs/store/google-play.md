@@ -55,7 +55,7 @@ RouterDash подключается непосредственно к указа
 
 - Сайт/страница поддержки: https://github.com/pozakonstantin-sketch/luci-app-routerdash
 - Политика конфиденциальности: https://github.com/pozakonstantin-sketch/luci-app-routerdash/blob/main/docs/privacy-policy.md
-- E-mail поддержки: **[УКАЗАТЬ ДЕЙСТВУЮЩИЙ E-MAIL]**
+- E-mail поддержки: **Pozakonstantin@gmail.com**
 
 ## Обязательные материалы Play Console
 

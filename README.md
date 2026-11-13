@@ -29,8 +29,8 @@
 
 ## Android-приложение
 
-Исходники Android-приложения находятся в [android-app](android-app/README.md).
-Нативное приложение на Kotlin/Jetpack Compose подключается напрямую к LuCI JSON-RPC/ubus, без WebView. Для сборки нужны Android Studio, JDK 17 и Android SDK Platform 37.
+Исходники Android-приложения находятся в [android-app](android-app/README.md). Материалы публикации в Google Play и RuStore, политика конфиденциальности и инструкция подписи находятся в [docs/store](docs/store/).
+Нативное приложение на Kotlin/Jetpack Compose подключается напрямую к LuCI JSON-RPC/ubus, без WebView. Для сборки нужны Android Studio, JDK 17 и Android SDK Platform 36. Релизные сборки APK/AAB подписываются отдельным GitHub Actions workflow после настройки ключа подписи.
 
 ## Скриншоты разделов
 

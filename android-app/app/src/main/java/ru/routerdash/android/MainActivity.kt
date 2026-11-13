@@ -140,14 +140,13 @@ private data class Snapshot(
     val board: JSONObject? = null, val info: JSONObject? = null,
     val network: JSONObject? = null, val wireless: JSONObject? = null, val devices: JSONObject? = null,
     val services: JSONObject? = null, val logs: JSONObject? = null,
-    val storage: JSONArray? = null, val packages: JSONObject? = null, val downloads: JSONObject? = null,
+    val storage: JSONArray? = null, val storageError: String? = null,
+    val packages: JSONObject? = null, val downloads: JSONObject? = null,
     val cpuRaw: String? = null, val networkDevices: JSONObject? = null,
-    val processes: String? = null,
+    val processes: String? = null, val logsError: String? = null,
     val cpuPercent: Int? = null, val rxRate: Long? = null, val txRate: Long? = null,
     val trafficHistory: List<TrafficPoint> = emptyList(),
-    val cpuHistory: List<Int> = emptyList(),
-    val sessionRxBytes: Long = 0L,
-    val sessionTxBytes: Long = 0L
+    val cpuHistory: List<Int> = emptyList()
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -170,6 +169,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
     var previousTraffic by remember { mutableStateOf<LongArray?>(null) }
     var previousTrafficAt by remember { mutableLongStateOf(0L) }
     var api by remember { mutableStateOf<RouterApi?>(null) }
+    var showNavigationSheet by remember { mutableStateOf(false) }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         error = if (granted) "Разрешение получено. Нажми «Подключиться» ещё раз."
@@ -229,16 +229,31 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             snapshot.copy(devices = combined)
                         }
                         Screen.STORAGE -> {
-                            val mounts = runCatching { client.callArray("luci", "getMountPoints") }.getOrElse {
-                                runCatching {
-                                    val response = client.call("luci", "getMountPoints")
-                                    findArray(response, listOf("mounts", "mount_points", "results", "entries", "data"))
-                                }.getOrElse {
-                                    runCatching { parseDfOutput(client.execReadOnly("df", listOf("-kP"))) }
-                                        .getOrElse { parseProcMounts(readUbusFile(client, "/proc/mounts").orEmpty()) }
-                                }
+                            val failures = mutableListOf<String>()
+                            var mounts = runCatching { normalizeMounts(client.callArray("luci", "getMountPoints")) }
+                                .onFailure { failures += "luci.getMountPoints: ${it.message}" }.getOrDefault(JSONArray())
+                            if (mounts.length() == 0) {
+                                mounts = runCatching {
+                                    normalizeMounts(findArrayDeep(client.call("luci", "getMountPoints"),
+                                        listOf("mounts", "mount_points", "mountpoints", "results", "entries", "data")))
+                                }.onFailure { failures += "ответ LuCI: ${it.message}" }.getOrDefault(JSONArray())
                             }
-                            snapshot.copy(storage = mounts)
+                            if (mounts.length() == 0) {
+                                mounts = runCatching { parseDfOutput(client.execReadOnly("df", listOf("-kP"))) }
+                                    .onFailure { failures += "df -kP: ${it.message}" }.getOrDefault(JSONArray())
+                            }
+                            if (mounts.length() == 0) {
+                                mounts = runCatching { parseDfOutput(client.execReadOnly("df", listOf("-k"))) }
+                                    .onFailure { failures += "df -k: ${it.message}" }.getOrDefault(JSONArray())
+                            }
+                            if (mounts.length() == 0) {
+                                mounts = runCatching { parseProcMounts(readUbusFile(client, "/proc/mounts").orEmpty()) }
+                                    .onFailure { failures += "/proc/mounts: ${it.message}" }.getOrDefault(JSONArray())
+                            }
+                            val diagnostic = if (mounts.length() == 0)
+                                failures.joinToString("\n").ifBlank { "Роутер не вернул список файловых систем." }
+                            else null
+                            snapshot.copy(storage = mounts, storageError = diagnostic)
                         }
                         Screen.PACKAGES -> snapshot.copy(packages = client.call("rpc-sys", "packagelist"))
                         Screen.DOWNLOADS -> snapshot.copy(downloads = client.aria2Overview())
@@ -249,13 +264,24 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 runCatching { client.execReadOnly("ps", listOf("-o", "pid,comm,rss")) }.getOrDefault("")
                         )
                         Screen.LOGS -> {
-                            val logs = runCatching {
-                                normalizeLogResponse(client.call("log", "read", JSONObject().put("lines", 300)))
-                            }.getOrElse {
-                                runCatching { parseLogReadOutput(client.execReadOnly("logread", listOf("-l", "300"))) }
+                            val args = JSONObject().put("lines", 300)
+                            val failures = mutableListOf<String>()
+                            var logs = runCatching { JSONObject().put("log", client.callArray("log", "read", args)) }
+                                .onFailure { failures += "ubus log.read (array): ${it.message}" }
+                                .getOrDefault(JSONObject().put("log", JSONArray()))
+                            if (logs.optJSONArray("log")?.length() == 0) {
+                                logs = runCatching { normalizeLogResponse(client.call("log", "read", args)) }
+                                    .onFailure { failures += "ubus log.read (object): ${it.message}" }
                                     .getOrDefault(JSONObject().put("log", JSONArray()))
                             }
-                            snapshot.copy(logs = logs)
+                            if (logs.optJSONArray("log")?.length() == 0) {
+                                logs = runCatching { parseLogReadOutput(client.execReadOnly("logread", listOf("-l", "300"))) }
+                                    .onFailure { failures += "logread: ${it.message}" }
+                                    .getOrDefault(JSONObject().put("log", JSONArray()))
+                            }
+                            val hasEntries = (logs.optJSONArray("log")?.length() ?: 0) > 0
+                            snapshot.copy(logs = logs,
+                                logsError = if (hasEntries) null else failures.joinToString("\n").ifBlank { null })
                         }
                         Screen.SETTINGS -> snapshot
                     }
@@ -292,14 +318,8 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         else snapshot.trafficHistory
                         val cpuHistory = if (cpu != null)
                             (snapshot.cpuHistory + cpu).takeLast(48) else snapshot.cpuHistory
-                        val rxDelta = if (counters != null && oldCounters != null && counters[0] >= oldCounters[0])
-                            counters[0] - oldCounters[0] else 0L
-                        val txDelta = if (counters != null && oldCounters != null && counters[1] >= oldCounters[1])
-                            counters[1] - oldCounters[1] else 0L
                         snapshot = snapshot.copy(cpuPercent = cpu ?: snapshot.cpuPercent,
-                            rxRate = rx, txRate = tx, trafficHistory = history, cpuHistory = cpuHistory,
-                            sessionRxBytes = snapshot.sessionRxBytes + rxDelta,
-                            sessionTxBytes = snapshot.sessionTxBytes + txDelta)
+                            rxRate = rx, txRate = tx, trafficHistory = history, cpuHistory = cpuHistory)
                     }
                 }
                 if (screen == Screen.OVERVIEW) {
@@ -406,40 +426,20 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                 },
                 bottomBar = {
                     if (!isExpandedLayout) {
-                        var moreMenuExpanded by remember { mutableStateOf(false) }
-                        NavigationBar {
-                            listOf(
-                                Screen.OVERVIEW to Icons.Outlined.Dashboard,
-                                Screen.NETWORK to Icons.Outlined.Lan,
-                                Screen.DEVICES to Icons.Outlined.Devices
-                            ).forEach { (screen, icon) ->
-                                NavigationBarItem(
-                                    selected = selected == screen,
-                                    onClick = { selected = screen; refresh(screen) },
-                                    icon = { Icon(icon, contentDescription = screen.title) },
-                                    label = { Text(screen.title, maxLines = 1, softWrap = false) }
-                                )
-                            }
-                            NavigationBarItem(
-                                selected = selected !in listOf(Screen.OVERVIEW, Screen.NETWORK, Screen.DEVICES),
-                                onClick = { moreMenuExpanded = true },
-                                icon = { Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё") },
-                                label = { Text("Ещё", maxLines = 1) }
-                            )
-                            DropdownMenu(expanded = moreMenuExpanded, onDismissRequest = { moreMenuExpanded = false }) {
-                                listOf(
-                                    Screen.STORAGE to Icons.Outlined.Storage,
-                                    Screen.PACKAGES to Icons.Outlined.Inventory2,
-                                    Screen.DOWNLOADS to Icons.Outlined.Download,
-                                    Screen.SERVICES to Icons.Outlined.MiscellaneousServices,
-                                    Screen.LOGS to Icons.Outlined.Article,
-                                    Screen.SETTINGS to Icons.Outlined.Tune
-                                ).forEach { (screen, icon) ->
-                                    DropdownMenuItem(
-                                        text = { Text(screen.title) },
-                                        leadingIcon = { Icon(icon, contentDescription = null) },
-                                        onClick = { moreMenuExpanded = false; selected = screen; refresh(screen) }
-                                    )
+                        Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 5.dp) {
+                            Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                IconButton(onClick = { refresh() }, enabled = !loading) {
+                                    Icon(Icons.Outlined.Refresh, contentDescription = "Обновить")
+                                }
+                                Button(onClick = { showNavigationSheet = true },
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
+                                    Icon(Icons.Outlined.Menu, contentDescription = null)
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("Разделы · ${selected.title}")
+                                    Spacer(Modifier.weight(1f))
+                                    Icon(Icons.Outlined.ExpandLess, contentDescription = null)
                                 }
                             }
                         }
@@ -490,11 +490,11 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.OVERVIEW -> OverviewScreen(snapshot)
                         Screen.NETWORK -> NetworkScreen(snapshot.network, snapshot.wireless)
                         Screen.DEVICES -> DevicesScreen(snapshot.devices, snapshot.wireless)
-                        Screen.STORAGE -> StorageScreen(snapshot.storage) { refresh(Screen.STORAGE) }
+                        Screen.STORAGE -> StorageScreen(snapshot.storage, snapshot.storageError) { refresh(Screen.STORAGE) }
                         Screen.PACKAGES -> PackagesScreen(snapshot.packages) { refresh(Screen.PACKAGES) }
                         Screen.DOWNLOADS -> DownloadsScreen(snapshot.downloads, api) { refresh(Screen.DOWNLOADS) }
                         Screen.SERVICES -> ServicesScreen(snapshot.services, snapshot.processes, api) { refresh(Screen.SERVICES) }
-                        Screen.LOGS -> LogsScreen(snapshot.logs)
+                        Screen.LOGS -> LogsScreen(snapshot.logs, snapshot.logsError)
                         Screen.SETTINGS -> SettingsScreen(
                             refreshIntervalSeconds = refreshIntervalSeconds,
                             onIntervalChange = { value ->
@@ -513,6 +513,39 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             onDisconnect = { connected = false; api = null; selected = Screen.OVERVIEW }
                         )
                     }
+                    }
+                    if (!isExpandedLayout && showNavigationSheet) {
+                        val destinations = listOf(
+                            Screen.OVERVIEW to Icons.Outlined.Dashboard,
+                            Screen.NETWORK to Icons.Outlined.Lan,
+                            Screen.DEVICES to Icons.Outlined.Devices,
+                            Screen.STORAGE to Icons.Outlined.Storage,
+                            Screen.PACKAGES to Icons.Outlined.Inventory2,
+                            Screen.DOWNLOADS to Icons.Outlined.Download,
+                            Screen.SERVICES to Icons.Outlined.MiscellaneousServices,
+                            Screen.LOGS to Icons.Outlined.Article,
+                            Screen.SETTINGS to Icons.Outlined.Tune
+                        )
+                        ModalBottomSheet(onDismissRequest = { showNavigationSheet = false },
+                            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                            containerColor = MaterialTheme.colorScheme.surface) {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                                Text("Навигация", style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 10.dp))
+                                LazyColumn(Modifier.heightIn(max = 560.dp)) {
+                                    items(destinations) { (screen, icon) ->
+                                        NavigationDrawerItem(
+                                            label = { Text(screen.title) }, selected = selected == screen,
+                                            onClick = { showNavigationSheet = false; selected = screen; refresh(screen) },
+                                            icon = { Icon(icon, contentDescription = null) },
+                                            modifier = Modifier.padding(vertical = 3.dp),
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(16.dp))
+                            }
+                        }
                     }
                 }
             }
@@ -601,7 +634,7 @@ private fun SettingsScreen(
             }
         }
         item {
-            Text("RouterDash 2.0.1 · Нативное приложение", modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            Text("RouterDash 2.2.0 · Нативное приложение", modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -800,21 +833,15 @@ private fun CpuHistoryChart(history: List<Int>) {
 @Composable
 private fun NetworkInformationCard(s: Snapshot) {
     val maxRate = maxOf(s.rxRate ?: 0L, s.txRate ?: 0L, 1024L)
-    InfoCard("Скорость интернет-соединения") {
+    InfoCard("Скорость соединения · WAN") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Speedometer("Загрузка", s.rxRate?.let { formatRate(it) } ?: "—",
+            Speedometer("Приём", s.rxRate?.let { formatRate(it) } ?: "—",
                 ((s.rxRate ?: 0L).toFloat() / maxRate).coerceIn(0f, 1f),
-                MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
-            Speedometer("Отдача", s.txRate?.let { formatRate(it) } ?: "—",
+                androidx.compose.ui.graphics.Color(0xFF36D6C5), Modifier.weight(1f))
+            Speedometer("Передача", s.txRate?.let { formatRate(it) } ?: "—",
                 ((s.txRate ?: 0L).toFloat() / maxRate).coerceIn(0f, 1f),
-                MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+                androidx.compose.ui.graphics.Color(0xFFFF9A52), Modifier.weight(1f))
         }
-        Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column { Text(formatBytes(s.sessionRxBytes), fontWeight = FontWeight.SemiBold); Text("Получено за сеанс", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            Column(horizontalAlignment = Alignment.End) { Text(formatBytes(s.sessionTxBytes), fontWeight = FontWeight.SemiBold); Text("Передано за сеанс", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-        Text("Шкала автоматически подстраивается под максимальную текущую скорость.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -990,7 +1017,7 @@ private fun DevicesScreen(result: JSONObject?, wireless: JSONObject?) {
     }
 }
 @Composable
-private fun StorageScreen(mounts: JSONArray?, onRefresh: () -> Unit) {
+private fun StorageScreen(mounts: JSONArray?, loadError: String?, onRefresh: () -> Unit) {
     data class Mount(val path: String, val device: String, val size: Long, val available: Long) {
         val used: Long get() = (size - available).coerceAtLeast(0L)
         val percent: Int get() = if (size > 0L) ((used * 100L) / size).toInt().coerceIn(0, 100) else 0
@@ -998,15 +1025,11 @@ private fun StorageScreen(mounts: JSONArray?, onRefresh: () -> Unit) {
     val entries = remember(mounts) {
         if (mounts == null) emptyList() else (0 until mounts.length()).mapNotNull { index ->
             val item = mounts.optJSONObject(index) ?: return@mapNotNull null
-            val size = item.optLong("size")
-            val available = item.optLong("avail")
-            Mount(
-                item.optString("mount", item.optString("mountpoint", "—")),
-                item.optString("device", item.optString("fs", "—")),
-                size.coerceAtLeast(0L),
-                available.coerceIn(0L, size.coerceAtLeast(0L))
-            )
-        }.sortedBy { it.path }
+            val size = item.optLong("size", item.optLong("total", item.optLong("total_bytes", 0L))).coerceAtLeast(0L)
+            val available = item.optLong("avail", item.optLong("available", item.optLong("free", 0L))).coerceIn(0L, size)
+            Mount(item.optString("mount", item.optString("mountpoint", item.optString("target", "—"))),
+                item.optString("device", item.optString("fs", item.optString("source", "—"))), size, available)
+        }.filter { it.path != "—" }.distinctBy { it.path }.sortedBy { it.path }
     }
     LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
@@ -1015,11 +1038,17 @@ private fun StorageScreen(mounts: JSONArray?, onRefresh: () -> Unit) {
                 Text("Хранилища роутера", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 IconButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, contentDescription = "Обновить") }
             }
-            Text("Данные получены через luci.getMountPoints. Размеры отображаются для смонтированных файловых систем.",
+            Text("Использование файловых систем и подключённых накопителей.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (mounts == null) item { EmptyState("Нет данных о файловых системах. Проверь доступ к luci.getMountPoints.") }
-        else if (entries.isEmpty()) item { EmptyState("Нет смонтированных файловых систем с доступной статистикой.") }
+        if (!loadError.isNullOrBlank()) item {
+            InfoCard("Диагностика получения данных") {
+                Text(loadError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Повторить") }
+            }
+        }
+        if (mounts == null) item { EmptyState("Нет данных о файловых системах.") }
+        else if (entries.isEmpty()) item { EmptyState("Роутер не вернул смонтированные файловые системы.") }
         else items(entries, key = { it.path + it.device }) { mount ->
             val barColor = when {
                 mount.percent >= 90 -> MaterialTheme.colorScheme.error
@@ -1457,7 +1486,7 @@ private fun ServicesScreen(result: JSONObject?, processes: String?, api: RouterA
 }
 
 @Composable
-private fun LogsScreen(result: JSONObject?) {
+private fun LogsScreen(result: JSONObject?, loadError: String?) {
     val list = result?.optJSONArray("log") ?: result?.optJSONArray("entries")
     var query by rememberSaveable { mutableStateOf("") }
     var selectedLevel by rememberSaveable { mutableStateOf("Все") }
@@ -1485,8 +1514,13 @@ private fun LogsScreen(result: JSONObject?) {
                 }
             }
         }
-        if (result == null) item { EmptyState("Не удалось получить журнал. Проверь доступ к ubus log.read.") }
-        else if (entries.isEmpty()) item { EmptyState("Нет записей, соответствующих фильтру.") }
+        if (!loadError.isNullOrBlank()) item {
+            InfoCard("Не удалось прочитать журнал") {
+                Text(loadError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (result == null) item { EmptyState("Журнал не получен. Проверь доступ к ubus log.read и команде logread.") }
+        else if (entries.isEmpty()) item { EmptyState(if (loadError.isNullOrBlank()) "Журнал пуст или записей по фильтру нет." else "Нет доступных записей журнала.") }
         else items(entries) { line ->
             val message = line.optString("msg", line.optString("message", line.optString("line", "—")))
             val timestamp = line.optString("time", line.optString("timestamp", ""))

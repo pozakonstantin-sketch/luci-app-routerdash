@@ -463,10 +463,15 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                 topBar = {
                     TopAppBar(
                         title = {
-                            Column {
-                                Text("RouterDash", fontWeight = FontWeight.Bold)
-                                Text(url, style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(painterResource(R.drawable.ic_routerdash_foreground), null,
+                                    tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(34.dp))
+                                Column {
+                                    Text("RouterDash", fontWeight = FontWeight.Bold)
+                                    Text(url, style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         },
                         actions = {

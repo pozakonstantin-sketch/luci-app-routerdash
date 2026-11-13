@@ -47,7 +47,7 @@ RouterDash — нативное приложение для управления
 ## Контакты
 
 - Разработчик/правообладатель: **Поза Константин Виталиевич**
-- E-mail: **[УКАЗАТЬ ДЕЙСТВУЮЩИЙ E-MAIL]**
+- E-mail: **Pozakonstantin@gmail.com**
 - Страница проекта: https://github.com/pozakonstantin-sketch/luci-app-routerdash
 - Политика конфиденциальности: https://github.com/pozakonstantin-sketch/luci-app-routerdash/blob/main/docs/privacy-policy.md
 

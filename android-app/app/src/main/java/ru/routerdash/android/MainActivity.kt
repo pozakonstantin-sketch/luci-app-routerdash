@@ -177,7 +177,28 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                             cpuRaw = readUbusFile(client, "/proc/stat"),
                             networkDevices = client.call("luci-rpc", "getNetworkDevices")
                         )
-                        Screen.NETWORK -> snapshot.copy(network = client.call("network.interface", "dump"), wireless = client.call("luci-rpc", "getWirelessDevices"))
+                        Screen.NETWORK -> {
+                            val ifaceDump = client.call("network.interface", "dump")
+                            val radios = client.call("luci-rpc", "getWirelessDevices")
+                            // Enrich each AP interface with associated stations, matching LuCI's iwinfo calls.
+                            radios.keys().asSequence().toList().forEach { radioKey ->
+                                val radio = radios.optJSONObject(radioKey) ?: return@forEach
+                                val interfaces = radio.optJSONArray("interfaces") ?: return@forEach
+                                for (index in 0 until interfaces.length()) {
+                                    val wifiIface = interfaces.optJSONObject(index) ?: continue
+                                    val ifname = wifiIface.optString("ifname")
+                                    if (ifname.isBlank()) continue
+                                    runCatching {
+                                        val assoc = client.call("iwinfo", "assoclist", JSONObject().put("device", ifname))
+                                        wifiIface.put("associations", assoc.optJSONArray("results") ?: JSONArray())
+                                    }.onFailure {
+                                        wifiIface.put("associations", JSONArray())
+                                        wifiIface.put("association_error", it.message ?: "Недоступно")
+                                    }
+                                }
+                            }
+                            snapshot.copy(network = ifaceDump, wireless = radios)
+                        }
                         Screen.DEVICES -> snapshot.copy(devices = client.call("luci-rpc", "getDHCPLeases"))
                         Screen.SERVICES -> snapshot.copy(services = client.call("rc", "list"))
                         Screen.LOGS -> snapshot.copy(logs = client.call("log", "read", JSONObject().put("lines", 300).put("stream", false).put("oneshot", true)))
@@ -582,6 +603,32 @@ private fun NetworkScreen(result: JSONObject?, wireless: JSONObject?) {
                             InfoLine("Интерфейс", iface.optString("ifname", "—"))
                             InfoLine("Сигнал", if (iw.has("signal")) "${iw.optInt("signal")} dBm" else "—")
                             InfoLine("Шифрование", cfg.optString("encryption", "—"))
+                            val stations = iface.optJSONArray("associations")
+                            Text("Подключённые клиенты · ${stations?.length() ?: 0}",
+                                style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            if (stations != null && stations.length() > 0) {
+                                for (stationIndex in 0 until stations.length()) {
+                                    val station = stations.optJSONObject(stationIndex) ?: JSONObject()
+                                    val mac = station.optString("mac", "—")
+                                    val signal = if (station.has("signal")) "${station.optInt("signal")} dBm" else "сигнал неизвестен"
+                                    val connectedSeconds = station.optLong("connected_time", -1L)
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(mac, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                                            Text(signal + if (connectedSeconds >= 0) " · ${duration(connectedSeconds)}" else "",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Text(formatBytes(station.optJSONObject("rx")?.optLong("bytes") ?: 0L) + " ↓",
+                                            style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            } else {
+                                Text(if (iface.has("association_error")) "Список клиентов недоступен: ${iface.optString("association_error")}" else "Нет подключённых клиентов",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }

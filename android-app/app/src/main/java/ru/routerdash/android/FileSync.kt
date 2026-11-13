@@ -149,7 +149,7 @@ internal object SftpFileSync {
 }
 
 @Composable
-internal fun SyncScreen(sshConnected: Boolean, ssh: SshTerminal?, onOpenSsh: () -> Unit) {
+internal fun SyncScreen(sshConnected: Boolean, ssh: SshTerminal?, sshHostDefault: String, sshUserDefault: String, onOpenSsh: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("routerdash_sync", 0) }
     val scope = rememberCoroutineScope()
@@ -163,6 +163,16 @@ internal fun SyncScreen(sshConnected: Boolean, ssh: SshTerminal?, onOpenSsh: () 
     var errorText by remember { mutableStateOf<String?>(null) }
     var completed by remember { mutableIntStateOf(0) }
     var total by remember { mutableIntStateOf(0) }
+    val securePrefs = remember { encryptedCredentials(context) }
+    var autoEnabled by remember { mutableStateOf(prefs.getBoolean("auto_photo_enabled", false)) }
+    var autoHost by rememberSaveable { mutableStateOf(securePrefs.getString("auto_sync_ssh_host", sshHostDefault) ?: sshHostDefault) }
+    var autoUser by rememberSaveable { mutableStateOf(securePrefs.getString("auto_sync_ssh_user", sshUserDefault) ?: sshUserDefault) }
+    var autoPassword by remember { mutableStateOf("") }
+    var autoPasswordSaved by remember { mutableStateOf(!securePrefs.getString("auto_sync_ssh_password", null).isNullOrBlank()) }
+    var autoPort by rememberSaveable { mutableStateOf(securePrefs.getInt("auto_sync_ssh_port", 22).toString()) }
+    var autoInterval by rememberSaveable { mutableIntStateOf(prefs.getInt("auto_interval_minutes", 60).coerceIn(15, 1440)) }
+    var autoStatus by remember { mutableStateOf(prefs.getString("auto_last_status", "Пока запусков не было.") ?: "Пока запусков не было.") }
+    var autoError by remember { mutableStateOf<String?>(null) }
     val plan = remember { mutableStateListOf<SyncPlanItem>() }
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -324,8 +334,88 @@ internal fun SyncScreen(sshConnected: Boolean, ssh: SshTerminal?, onOpenSsh: () 
             Text("Все файлы синхронизированы.", color = MaterialTheme.colorScheme.secondary)
         }
         item {
+            InfoCard("Автозагрузка фотографий") {
+                Text("RouterDash будет проверять выбранную папку телефона в фоне и отправлять на SSD только новые фотографии. Работает без открытого приложения, когда доступна сеть.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = autoEnabled, onCheckedChange = { enabled ->
+                        autoError = null
+                        if (!enabled) {
+                            AutoPhotoSync.cancel(context)
+                            prefs.edit().putBoolean("auto_photo_enabled", false).apply()
+                            securePrefs.edit().remove("auto_sync_ssh_host").remove("auto_sync_ssh_user")
+                                .remove("auto_sync_ssh_password").remove("auto_sync_ssh_port").apply()
+                            autoEnabled = false
+                            autoPasswordSaved = false
+                            autoPassword = ""
+                            autoStatus = "Автозагрузка выключена."
+                        } else {
+                            val port = autoPort.toIntOrNull()
+                            if (treeUriText.isBlank()) autoError = "Сначала выбери папку телефона выше."
+                            else if (autoHost.isBlank() || autoUser.isBlank() || port == null || port !in 1..65535)
+                                autoError = "Проверь SSH-адрес, пользователя и порт."
+                            else if (autoPassword.isBlank() && !autoPasswordSaved)
+                                autoError = "Для фонового подключения введи SSH-пароль."
+                            else try {
+                                securePrefs.edit().putString("auto_sync_ssh_host", autoHost.trim())
+                                    .putString("auto_sync_ssh_user", autoUser.trim())
+                                    .putInt("auto_sync_ssh_port", port)
+                                    .apply()
+                                if (autoPassword.isNotBlank()) {
+                                    securePrefs.edit().putString("auto_sync_ssh_password", autoPassword).apply()
+                                    autoPasswordSaved = true
+                                    autoPassword = ""
+                                }
+                                prefs.edit().putBoolean("auto_photo_enabled", true)
+                                    .putInt("auto_interval_minutes", autoInterval).apply()
+                                AutoPhotoSync.schedule(context, autoInterval.toLong())
+                                autoEnabled = true
+                                autoStatus = "Автозагрузка включена. Первый запуск будет выполнен по расписанию."
+                            } catch (e: Exception) { autoError = e.message ?: "Не удалось включить автозагрузку." }
+                        }
+                    })
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (autoEnabled) "Включена" else "Выключена", fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedTextField(autoHost, { autoHost = it }, Modifier.fillMaxWidth(),
+                    label = { Text("SSH-адрес роутера") }, singleLine = true)
+                OutlinedTextField(autoPort, { autoPort = it.filter(Char::isDigit).take(5) }, Modifier.fillMaxWidth(),
+                    label = { Text("SSH-порт") }, singleLine = true)
+                OutlinedTextField(autoUser, { autoUser = it }, Modifier.fillMaxWidth(),
+                    label = { Text("SSH-пользователь") }, singleLine = true)
+                OutlinedTextField(autoPassword, { autoPassword = it }, Modifier.fillMaxWidth(),
+                    label = { Text(if (autoPasswordSaved) "Новый SSH-пароль (необязательно)" else "SSH-пароль") },
+                    supportingText = { Text(if (autoPasswordSaved) "Пароль уже сохранён в зашифрованном хранилище. Оставь пустым, чтобы не менять." else "Для фонового подключения пароль будет сохранён в Android Keystore.") },
+                    singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                Text("Проверка каждые:", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(15, 30, 60, 180, 360, 1440).forEach { minutes ->
+                        FilterChip(selected = autoInterval == minutes, onClick = { autoInterval = minutes },
+                            label = { Text(if (minutes < 60) "${minutes}м" else if (minutes == 1440) "24ч" else "${minutes / 60}ч") })
+                    }
+                }
+                if (autoEnabled) {
+                    Text(autoStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    OutlinedButton(onClick = {
+                        autoStatus = prefs.getString("auto_last_status", "Пока запусков не было.") ?: "Пока запусков не было."
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Обновить статус") }
+                    OutlinedButton(onClick = {
+                        try {
+                            prefs.edit().putInt("auto_interval_minutes", autoInterval).apply()
+                            AutoPhotoSync.schedule(context, autoInterval.toLong())
+                            autoStatus = "Расписание обновлено."
+                            autoError = null
+                        } catch (e: Exception) { autoError = e.message }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Сохранить интервал") }
+                }
+                if (autoError != null) Text(autoError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                Text("Минимальный интервал Android — 15 минут. Работа зависит от ограничений энергосбережения производителя. Пароль SSH хранится отдельно и зашифрован системным Android Keystore. Автозагрузка отправляет только фото; конфликты пропускаются, SSD → телефон и удаление не выполняются.",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        item {
             Spacer(Modifier.height(8.dp))
-            Text("Конфликты не перезаписываются автоматически. Удаление и зеркальное удаление отключены. На роутере должен быть доступен SFTP-сервер.",
+            Text("Ручная синхронизация: конфликты требуют выбора версии. Удаление и зеркальное удаление отключены. На роутере должен быть доступен SFTP-сервер.",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

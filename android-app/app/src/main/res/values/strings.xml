@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">RouterDash</string>
+    <string name="routerdash_widget_description">Состояние роутера, CPU, RAM и скорость сети</string>
 </resources>

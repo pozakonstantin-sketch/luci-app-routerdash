@@ -1693,6 +1693,103 @@ private fun LogsScreen(result: JSONObject?, loadError: String?) {
     }
 }
 @Composable
+private fun VpnScreen(status: String?, onRefresh: () -> Unit) {
+    val lines = status.orEmpty().lines().filter { it.isNotBlank() }
+    val processes = lines.filter { !it.startsWith("VPN_") && !it.startsWith("TAILSCALE_") &&
+        !it.startsWith("TUNNEL_") && !it.startsWith("ROUTES") }
+    LazyColumn(contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("VPN и туннели", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, null) }
+            }
+            Text("Состояние Tailscale, sing-box / VLESS, VPN-процессов, туннельных интерфейсов и маршрутов.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            InfoCard("Обнаруженные VPN-процессы") {
+                if (processes.isEmpty()) Text("Процессы VPN не обнаружены или нет доступа к списку процессов.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else processes.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+        item {
+            InfoCard("Диагностика туннелей и маршрутов") {
+                Text(status ?: "Данные ещё не получены.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SshScreen(host: String, defaultUser: String, connected: Boolean, connecting: Boolean,
+                      output: String, onConnect: (String, Int, String, String) -> Unit,
+                      onSend: (String) -> Unit, onDisconnect: () -> Unit) {
+    var hostValue by rememberSaveable(host) { mutableStateOf(host) }
+    var portValue by rememberSaveable { mutableStateOf("22") }
+    var userValue by rememberSaveable(defaultUser) { mutableStateOf(defaultUser) }
+    var passwordValue by remember { mutableStateOf("") }
+    var command by rememberSaveable { mutableStateOf("") }
+    Column(Modifier.fillMaxSize().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("SSH-консоль", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text("Отдельная интерактивная shell-сессия Dropbear. Команды выполняются непосредственно на роутере.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!connected) {
+            OutlinedTextField(hostValue, { hostValue = it }, Modifier.fillMaxWidth(),
+                label = { Text("Адрес роутера") }, singleLine = true)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(portValue, { portValue = it.filter(Char::isDigit).take(5) },
+                    Modifier.weight(0.35f), label = { Text("Порт") }, singleLine = true)
+                OutlinedTextField(userValue, { userValue = it }, Modifier.weight(0.65f),
+                    label = { Text("Пользователь") }, singleLine = true)
+            }
+            OutlinedTextField(passwordValue, { passwordValue = it }, Modifier.fillMaxWidth(),
+                label = { Text("Пароль SSH") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+            Button(onClick = {
+                val port = portValue.toIntOrNull() ?: 22
+                if (hostValue.isNotBlank() && userValue.isNotBlank() && passwordValue.isNotBlank() && port in 1..65535)
+                    onConnect(hostValue, port, userValue, passwordValue)
+            }, enabled = !connecting && hostValue.isNotBlank() && userValue.isNotBlank() &&
+                passwordValue.isNotBlank() && (portValue.toIntOrNull() ?: 0) in 1..65535,
+                modifier = Modifier.fillMaxWidth()) {
+                if (connecting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Icon(Icons.Outlined.Terminal, null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (connecting) "Подключение…" else "Открыть SSH-сессию")
+            }
+            Text("По умолчанию используется порт 22. Пароль не сохраняется в истории терминала.",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("● SSH подключён · $userValue@$hostValue", color = androidx.compose.ui.graphics.Color(0xFF55D6A7),
+                    style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                TextButton(onClick = onDisconnect) { Text("Завершить") }
+            }
+            Surface(Modifier.weight(1f).fillMaxWidth(), color = androidx.compose.ui.graphics.Color(0xFF10151D),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
+                LazyColumn(Modifier.fillMaxSize().padding(10.dp)) {
+                    item { Text(output, color = androidx.compose.ui.graphics.Color(0xFFB6F5D0),
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(command, { command = it }, Modifier.weight(1f),
+                    label = { Text("Команда") }, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Send),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = {
+                        if (command.isNotBlank()) { onSend(command); command = "" }
+                    }))
+                IconButton(onClick = { if (command.isNotBlank()) { onSend(command); command = "" } }) {
+                    Icon(Icons.Outlined.Send, "Выполнить")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun GaugeCard(title: String, value: String, progress: Float, caption: String,
                       modifier: Modifier = Modifier, accent: androidx.compose.ui.graphics.Color) {
     val trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)

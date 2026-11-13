@@ -480,7 +480,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             }
                             if (loading) CircularProgressIndicator(Modifier.size(20.dp))
                             IconButton(onClick = { refresh() }) { Text("↻", style = MaterialTheme.typography.headlineSmall) }
-                            IconButton(onClick = { connected = false; api = null; selected = Screen.OVERVIEW }) {
+                            IconButton(onClick = { scope.launch { withContext(Dispatchers.IO) { sshSession?.close() }; sshSession = null; sshConnected = false }; connected = false; api = null; selected = Screen.OVERVIEW }) {
                                 Icon(Icons.Outlined.Logout, contentDescription = "Отключиться")
                             }
                         }
@@ -600,7 +600,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                     biometricEnabled = false
                                 }
                             },
-                            onDisconnect = { connected = false; api = null; selected = Screen.OVERVIEW }
+                            onDisconnect = { scope.launch { withContext(Dispatchers.IO) { sshSession?.close() }; sshSession = null; sshConnected = false }; connected = false; api = null; selected = Screen.OVERVIEW }
                         )
                     }
                     }

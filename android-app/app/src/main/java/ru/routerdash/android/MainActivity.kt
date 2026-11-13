@@ -863,7 +863,7 @@ private fun packageDescription(name: String): String {
 @Composable
 private fun PackagesScreen(result: JSONObject?, onRefresh: () -> Unit) {
     var filter by rememberSaveable { mutableStateOf("") }
-    var expanded by rememberSaveable { mutableStateOf(false) }
+    var expandedPackage by rememberSaveable { mutableStateOf("") }
     val packages = remember(result) {
         val map = result?.optJSONObject("packages") ?: JSONObject()
         map.keys().asSequence().map { name -> name to map.optString(name) }.sortedBy { it.first }.toList()
@@ -888,16 +888,16 @@ private fun PackagesScreen(result: JSONObject?, onRefresh: () -> Unit) {
         if (result == null) item { EmptyState("Не удалось получить список пакетов. Проверь доступ rpc-sys.packagelist.") }
         else if (filtered.isEmpty()) item { EmptyState("Пакеты не найдены.") }
         else items(filtered, key = { it.first }) { (name, version) ->
-            ElevatedCard(Modifier.fillMaxWidth(), onClick = { expanded = !expanded }) {
+            ElevatedCard(Modifier.fillMaxWidth(), onClick = { expandedPackage = if (expandedPackage == name) "" else name }) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text(name, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                            contentDescription = if (expanded) "Свернуть" else "Описание")
+                        Icon(if (expandedPackage == name) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                            contentDescription = if (expandedPackage == name) "Свернуть" else "Описание")
                     }
                     Text("Версия: ${version.ifBlank { "—" }}", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (expanded) Text(packageDescription(name), style = MaterialTheme.typography.bodyMedium,
+                    if (expandedPackage == name) Text(packageDescription(name), style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.secondary)
                     else Text(packageDescription(name), maxLines = 2, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

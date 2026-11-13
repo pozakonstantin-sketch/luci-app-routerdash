@@ -420,28 +420,26 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                     label = { Text(screen.title, maxLines = 1, softWrap = false) }
                                 )
                             }
-                            Box {
-                                NavigationBarItem(
-                                    selected = selected !in listOf(Screen.OVERVIEW, Screen.NETWORK, Screen.DEVICES),
-                                    onClick = { moreMenuExpanded = true },
-                                    icon = { Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё") },
-                                    label = { Text("Ещё", maxLines = 1) }
-                                )
-                                DropdownMenu(expanded = moreMenuExpanded, onDismissRequest = { moreMenuExpanded = false }) {
-                                    listOf(
-                                        Screen.STORAGE to Icons.Outlined.Storage,
-                                        Screen.PACKAGES to Icons.Outlined.Inventory2,
-                                        Screen.DOWNLOADS to Icons.Outlined.Download,
-                                        Screen.SERVICES to Icons.Outlined.MiscellaneousServices,
-                                        Screen.LOGS to Icons.Outlined.Article,
-                                        Screen.SETTINGS to Icons.Outlined.Tune
-                                    ).forEach { (screen, icon) ->
-                                        DropdownMenuItem(
-                                            text = { Text(screen.title) },
-                                            leadingIcon = { Icon(icon, contentDescription = null) },
-                                            onClick = { moreMenuExpanded = false; selected = screen; refresh(screen) }
-                                        )
-                                    }
+                            NavigationBarItem(
+                                selected = selected !in listOf(Screen.OVERVIEW, Screen.NETWORK, Screen.DEVICES),
+                                onClick = { moreMenuExpanded = true },
+                                icon = { Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё") },
+                                label = { Text("Ещё", maxLines = 1) }
+                            )
+                            DropdownMenu(expanded = moreMenuExpanded, onDismissRequest = { moreMenuExpanded = false }) {
+                                listOf(
+                                    Screen.STORAGE to Icons.Outlined.Storage,
+                                    Screen.PACKAGES to Icons.Outlined.Inventory2,
+                                    Screen.DOWNLOADS to Icons.Outlined.Download,
+                                    Screen.SERVICES to Icons.Outlined.MiscellaneousServices,
+                                    Screen.LOGS to Icons.Outlined.Article,
+                                    Screen.SETTINGS to Icons.Outlined.Tune
+                                ).forEach { (screen, icon) ->
+                                    DropdownMenuItem(
+                                        text = { Text(screen.title) },
+                                        leadingIcon = { Icon(icon, contentDescription = null) },
+                                        onClick = { moreMenuExpanded = false; selected = screen; refresh(screen) }
+                                    )
                                 }
                             }
                         }

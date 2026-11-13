@@ -250,6 +250,24 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 mounts = runCatching { parseProcMounts(readUbusFile(client, "/proc/mounts").orEmpty()) }
                                     .onFailure { failures += "/proc/mounts: ${it.message}" }.getOrDefault(JSONArray())
                             }
+                            // Match LuCI's own storage page: system.info provides root and tmp
+                            // capacities in KiB, while luci.getMountPoints provides mounted volumes in bytes.
+                            runCatching {
+                                val systemInfo = client.call("system", "info")
+                                listOf("root" to "/", "tmp" to "/tmp").forEach { (key, mountPath) ->
+                                    val fs = systemInfo.optJSONObject(key) ?: return@forEach
+                                    val totalKb = fs.optLong("total")
+                                    val usedKb = fs.optLong("used", -1L)
+                                    val freeKb = fs.optLong("free", -1L)
+                                    if (totalKb > 0L && mounts.toString().contains("\"mount\":\"$mountPath\"").not()) {
+                                        val usedBytes = if (usedKb >= 0L) usedKb * 1024L
+                                            else (totalKb - freeKb.coerceAtLeast(0L)) * 1024L
+                                        mounts.put(JSONObject().put("device", if (key == "root") "rootfs" else "tmpfs")
+                                            .put("mount", mountPath).put("size", totalKb * 1024L)
+                                            .put("used", usedBytes).put("avail", (totalKb * 1024L - usedBytes).coerceAtLeast(0L)))
+                                    }
+                                }
+                            }
                             val diagnostic = if (mounts.length() == 0)
                                 failures.joinToString("\n").ifBlank { "Роутер не вернул список файловых систем." }
                             else null
@@ -266,7 +284,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.LOGS -> {
                             val args = JSONObject().put("lines", 300)
                             val failures = mutableListOf<String>()
-                            var logs = runCatching { JSONObject().put("log", client.callArray("log", "read", args)) }
+                            var logs = runCatching { JSONObject().put("log", normalizeLogRows(client.callArray("log", "read", args))) }
                                 .onFailure { failures += "ubus log.read (array): ${it.message}" }
                                 .getOrDefault(JSONObject().put("log", JSONArray()))
                             if (logs.optJSONArray("log")?.length() == 0) {
@@ -391,6 +409,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
     MaterialTheme(colorScheme = darkColorScheme(
         primary = androidx.compose.ui.graphics.Color(0xFFFF9A52),
         secondary = androidx.compose.ui.graphics.Color(0xFF69C7F0),
+        tertiary = androidx.compose.ui.graphics.Color(0xFF4FE0B8),
         background = androidx.compose.ui.graphics.Color(0xFF171B22),
         surface = androidx.compose.ui.graphics.Color(0xFF222832),
         surfaceVariant = androidx.compose.ui.graphics.Color(0xFF2B323D),

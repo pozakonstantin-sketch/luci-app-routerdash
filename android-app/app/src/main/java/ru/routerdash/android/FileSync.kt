@@ -38,6 +38,7 @@ internal object SftpFileSync {
             ?: throw IllegalStateException("Не удалось открыть выбранную папку телефона.")
         if (!root.canRead() || !root.canWrite()) throw IllegalStateException("Нет прав чтения и записи в выбранной папке.")
         val base = normalizeRoot(remoteRoot)
+        ssh.verifyMountedStorage(base)
         ssh.ensureRemoteDirectory(base)
         val local = linkedMapOf<String, LocalEntry>()
         fun walkLocal(dir: DocumentFile, prefix: String) {

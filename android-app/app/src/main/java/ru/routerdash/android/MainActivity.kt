@@ -2207,9 +2207,42 @@ internal class SshTerminal(private val context: android.content.Context) {
 
     internal fun uploadFile(input: InputStream, remotePath: String) {
         val sftp = openSftp()
-        try { sftp.put(input, remotePath, ChannelSftp.OVERWRITE) }
-        catch (e: Exception) { throw IllegalStateException("Ошибка загрузки на SSD: ${e.message}", e) }
-        finally { runCatching { sftp.disconnect() } }
+        val token = java.util.UUID.randomUUID().toString()
+        val parent = remotePath.substringBeforeLast('/', "")
+        val name = remotePath.substringAfterLast('/')
+        require(name.isNotBlank() && name != "." && name != "..") { "Недопустимое имя удалённого файла." }
+        val temporary = if (parent.isBlank()) ".$name.routerdash-part-$token" else "$parent/.$name.routerdash-part-$token"
+        val backup = if (parent.isBlank()) ".$name.routerdash-backup-$token" else "$parent/.$name.routerdash-backup-$token"
+        var backedUp = false
+        try {
+            sftp.put(input, temporary, ChannelSftp.OVERWRITE)
+            val existing = try {
+                val attrs = sftp.stat(remotePath)
+                if (attrs.isDir) throw IllegalStateException("На месте файла уже находится папка: $remotePath")
+                true
+            } catch (e: com.jcraft.jsch.SftpException) {
+                if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) false else throw e
+            }
+            if (existing) {
+                sftp.rename(remotePath, backup)
+                backedUp = true
+            }
+            try {
+                sftp.rename(temporary, remotePath)
+            } catch (e: Exception) {
+                if (backedUp) runCatching { sftp.rename(backup, remotePath) }
+                throw e
+            }
+            if (backedUp) runCatching { sftp.rm(backup) }
+        } catch (e: Exception) {
+            runCatching { sftp.rm(temporary) }
+            if (backedUp) {
+                runCatching {
+                    if (runCatching { sftp.stat(remotePath) }.isFailure) sftp.rename(backup, remotePath)
+                }
+            }
+            throw IllegalStateException("Ошибка безопасной загрузки на SSD: ${e.message}", e)
+        } finally { runCatching { sftp.disconnect() } }
     }
 
     internal fun downloadFile(remotePath: String, output: OutputStream) {

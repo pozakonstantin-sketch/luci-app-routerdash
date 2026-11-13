@@ -230,7 +230,13 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         }
                         Screen.STORAGE -> {
                             val mounts = runCatching { client.callArray("luci", "getMountPoints") }.getOrElse {
-                                runCatching { parseDfOutput(client.execReadOnly("df", listOf("-kP"))) }.getOrDefault(JSONArray())
+                                runCatching {
+                                    val response = client.call("luci", "getMountPoints")
+                                    findArray(response, listOf("mounts", "mount_points", "results", "entries", "data"))
+                                }.getOrElse {
+                                    runCatching { parseDfOutput(client.execReadOnly("df", listOf("-kP"))) }
+                                        .getOrElse { parseProcMounts(readUbusFile(client, "/proc/mounts").orEmpty()) }
+                                }
                             }
                             snapshot.copy(storage = mounts)
                         }
@@ -243,7 +249,9 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 runCatching { client.execReadOnly("ps", listOf("-o", "pid,comm,rss")) }.getOrDefault("")
                         )
                         Screen.LOGS -> {
-                            val logs = runCatching { client.call("log", "read", JSONObject().put("lines", 300)) }.getOrElse {
+                            val logs = runCatching {
+                                normalizeLogResponse(client.call("log", "read", JSONObject().put("lines", 300)))
+                            }.getOrElse {
                                 runCatching { parseLogReadOutput(client.execReadOnly("logread", listOf("-l", "300"))) }
                                     .getOrDefault(JSONObject().put("log", JSONArray()))
                             }
@@ -398,27 +406,42 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                 },
                 bottomBar = {
                     if (!isExpandedLayout) {
+                        var moreMenuExpanded by remember { mutableStateOf(false) }
                         NavigationBar {
-                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                                val entries = listOf(
-                                    Screen.OVERVIEW to Icons.Outlined.Dashboard,
-                                    Screen.NETWORK to Icons.Outlined.Lan,
-                                    Screen.DEVICES to Icons.Outlined.Devices,
-                                    Screen.STORAGE to Icons.Outlined.Storage,
-                                    Screen.PACKAGES to Icons.Outlined.Inventory2,
-                                    Screen.DOWNLOADS to Icons.Outlined.Download,
-                                    Screen.SERVICES to Icons.Outlined.Settings,
-                                    Screen.LOGS to Icons.Outlined.Article,
-                                    Screen.SETTINGS to Icons.Outlined.Tune
+                            listOf(
+                                Screen.OVERVIEW to Icons.Outlined.Dashboard,
+                                Screen.NETWORK to Icons.Outlined.Lan,
+                                Screen.DEVICES to Icons.Outlined.Devices
+                            ).forEach { (screen, icon) ->
+                                NavigationBarItem(
+                                    selected = selected == screen,
+                                    onClick = { selected = screen; refresh(screen) },
+                                    icon = { Icon(icon, contentDescription = screen.title) },
+                                    label = { Text(screen.title, maxLines = 1, softWrap = false) }
                                 )
-                                entries.forEach { (screen, icon) ->
-                                    NavigationBarItem(
-                                        modifier = Modifier.width(76.dp),
-                                        selected = selected == screen,
-                                        onClick = { selected = screen; refresh(screen) },
-                                        icon = { Icon(icon, contentDescription = screen.title) },
-                                        label = { Text(screen.title, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall) }
-                                    )
+                            }
+                            Box {
+                                NavigationBarItem(
+                                    selected = selected !in listOf(Screen.OVERVIEW, Screen.NETWORK, Screen.DEVICES),
+                                    onClick = { moreMenuExpanded = true },
+                                    icon = { Icon(Icons.Outlined.MoreHoriz, contentDescription = "Ещё") },
+                                    label = { Text("Ещё", maxLines = 1) }
+                                )
+                                DropdownMenu(expanded = moreMenuExpanded, onDismissRequest = { moreMenuExpanded = false }) {
+                                    listOf(
+                                        Screen.STORAGE to Icons.Outlined.Storage,
+                                        Screen.PACKAGES to Icons.Outlined.Inventory2,
+                                        Screen.DOWNLOADS to Icons.Outlined.Download,
+                                        Screen.SERVICES to Icons.Outlined.MiscellaneousServices,
+                                        Screen.LOGS to Icons.Outlined.Article,
+                                        Screen.SETTINGS to Icons.Outlined.Tune
+                                    ).forEach { (screen, icon) ->
+                                        DropdownMenuItem(
+                                            text = { Text(screen.title) },
+                                            leadingIcon = { Icon(icon, contentDescription = null) },
+                                            onClick = { moreMenuExpanded = false; selected = screen; refresh(screen) }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -441,7 +464,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 Screen.STORAGE to Icons.Outlined.Storage,
                                 Screen.PACKAGES to Icons.Outlined.Inventory2,
                                 Screen.DOWNLOADS to Icons.Outlined.Download,
-                                Screen.SERVICES to Icons.Outlined.Settings,
+                                Screen.SERVICES to Icons.Outlined.MiscellaneousServices,
                                 Screen.LOGS to Icons.Outlined.Article,
                                 Screen.SETTINGS to Icons.Outlined.Tune
                             )
@@ -927,11 +950,11 @@ private fun StorageScreen(mounts: JSONArray?, onRefresh: () -> Unit) {
             val item = mounts.optJSONObject(index) ?: return@mapNotNull null
             val size = item.optLong("size")
             val available = item.optLong("avail")
-            if (size <= 0L) null else Mount(
-                item.optString("mount", "—"),
-                item.optString("device", "—"),
-                size,
-                available.coerceIn(0L, size)
+            Mount(
+                item.optString("mount", item.optString("mountpoint", "—")),
+                item.optString("device", item.optString("fs", "—")),
+                size.coerceAtLeast(0L),
+                available.coerceIn(0L, size.coerceAtLeast(0L))
             )
         }.sortedBy { it.path }
     }
@@ -955,17 +978,18 @@ private fun StorageScreen(mounts: JSONArray?, onRefresh: () -> Unit) {
             }
             InfoCard(mount.path) {
                 InfoLine("Устройство", mount.device)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Занято", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${formatBytes(mount.used)} · ${mount.percent}%", fontWeight = FontWeight.SemiBold)
+                if (mount.size > 0L) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Занято", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${formatBytes(mount.used)} · ${mount.percent}%", fontWeight = FontWeight.SemiBold)
+                    }
+                    LinearProgressIndicator(progress = { mount.percent / 100f }, modifier = Modifier.fillMaxWidth(), color = barColor)
+                    InfoLine("Свободно", formatBytes(mount.available))
+                    InfoLine("Всего", formatBytes(mount.size))
+                } else {
+                    Text("Точка монтирования обнаружена, статистика объёма недоступна.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
-                LinearProgressIndicator(
-                    progress = { mount.percent / 100f },
-                    modifier = Modifier.fillMaxWidth(),
-                    color = barColor
-                )
-                InfoLine("Свободно", formatBytes(mount.available))
-                InfoLine("Всего", formatBytes(mount.size))
             }
         }
     }
@@ -983,26 +1007,67 @@ private fun findArray(root: JSONObject?, keys: List<String>): JSONArray {
 
 private fun parseDfOutput(output: String): JSONArray {
     val rows = JSONArray()
-    output.lineSequence().drop(1).forEach { line ->
+    output.lineSequence().drop(1).forEach { raw ->
+        val parts = raw.trim().split(Regex("\\s+"))
+        if (parts.size < 6) return@forEach
+        val blockSize = parts[1].toLongOrNull() ?: return@forEach
+        val used = parts[2].toLongOrNull() ?: return@forEach
+        val available = parts[3].toLongOrNull() ?: return@forEach
+        rows.put(JSONObject().put("device", parts[0]).put("mount", parts.last())
+            .put("size", blockSize * 1024L).put("used", used * 1024L)
+            .put("avail", available * 1024L))
+    }
+    return rows
+}
+
+private fun parseProcMounts(output: String): JSONArray {
+    val rows = JSONArray()
+    val seen = mutableSetOf<String>()
+    output.lineSequence().forEach { line ->
         val parts = line.trim().split(Regex("\\s+"))
-        if (parts.size >= 6) {
-            val blockSize = parts[1].toLongOrNull() ?: return@forEach
-            val used = parts[2].toLongOrNull() ?: return@forEach
-            val available = parts[3].toLongOrNull() ?: return@forEach
-            rows.put(JSONObject().put("device", parts[0]).put("mount", parts.last())
-                .put("size", blockSize * 1024L).put("used", used * 1024L)
-                .put("avail", available * 1024L))
+        if (parts.size >= 3) {
+            val mount = parts[1].replace("\\040", " ")
+            if (mount.startsWith("/") && seen.add(mount)) {
+                rows.put(JSONObject().put("device", parts[0]).put("mount", mount)
+                    .put("size", 0).put("used", 0).put("avail", 0))
+            }
         }
     }
     return rows
 }
 
-private fun parseLogReadOutput(output: String): JSONObject {
+private fun normalizeLogResponse(response: JSONObject): JSONObject {
+    val source = response.optJSONArray("log") ?: response.optJSONArray("entries")
+        ?: response.optJSONArray("lines") ?: response.optJSONArray("messages")
     val entries = JSONArray()
-    output.lineSequence().filter { it.isNotBlank() }.forEach { line ->
-        entries.put(JSONObject().put("msg", line).put("priority", "info"))
+    if (source != null) {
+        for (index in 0 until source.length()) {
+            when (val row = source.opt(index)) {
+                is JSONObject -> entries.put(row)
+                is String -> entries.put(parseLogLine(row))
+            }
+        }
+    } else {
+        val text = response.optString("data", response.optString("output", ""))
+        if (text.isNotBlank()) return parseLogReadOutput(text)
     }
     return JSONObject().put("log", entries)
+}
+
+private fun parseLogReadOutput(output: String): JSONObject {
+    val entries = JSONArray()
+    output.lineSequence().filter { it.isNotBlank() }.forEach { entries.put(parseLogLine(it)) }
+    return JSONObject().put("log", entries)
+}
+
+private fun parseLogLine(line: String): JSONObject {
+    val priority = when {
+        line.contains(" error", true) || line.contains(" failed", true) || line.contains(" denied", true) -> "error"
+        line.contains(" warn", true) -> "warning"
+        else -> "info"
+    }
+    val timestamp = Regex("^(\\w{3}\\s+\\d+\\s+[\\d:]+)").find(line)?.value.orEmpty()
+    return JSONObject().put("msg", line).put("time", timestamp).put("priority", priority)
 }
 
 private fun serviceDescription(name: String): String {
@@ -1373,9 +1438,9 @@ private fun LogsScreen(result: JSONObject?) {
         if (result == null) item { EmptyState("Не удалось получить журнал. Проверь доступ к ubus log.read.") }
         else if (entries.isEmpty()) item { EmptyState("Нет записей, соответствующих фильтру.") }
         else items(entries) { line ->
-            val message = line.optString("msg", line.optString("message", "—"))
+            val message = line.optString("msg", line.optString("message", line.optString("line", "—")))
             val timestamp = line.optString("time", line.optString("timestamp", ""))
-            val priority = line.optString("priority", line.optString("level", ""))
+            val priority = line.optString("priority", line.optString("level", "info"))
             InfoCard(priority.ifBlank { "Системное сообщение" }) {
                 Text(message, style = MaterialTheme.typography.bodyMedium)
                 if (timestamp.isNotBlank()) Text(timestamp, style = MaterialTheme.typography.labelSmall,

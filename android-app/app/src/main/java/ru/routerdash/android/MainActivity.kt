@@ -1,6 +1,5 @@
 package ru.routerdash.android
 
-import android.os.Build
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
 import androidx.biometric.BiometricManager
@@ -9,7 +8,6 @@ import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -29,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -186,11 +185,6 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
     var sshConnected by remember { mutableStateOf(false) }
     var sshConnecting by remember { mutableStateOf(false) }
     var sshOutput by remember { mutableStateOf("RouterDash SSH · готов к подключению\n") }
-
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        error = if (granted) "Разрешение получено. Нажми «Подключиться» ещё раз."
-                else "Разреши доступ к локальной сети для связи с роутером."
-    }
 
     fun refresh(screen: Screen = selected) {
         val client = api ?: return
@@ -391,11 +385,6 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
         val parsed = runCatching { URI(url.trim()) }.getOrNull()
         if (parsed?.host.isNullOrBlank() || parsed?.scheme !in listOf("http", "https") || parsed?.userInfo != null) {
             error = "Укажи корректный адрес, например http://192.168.1.1"; return
-        }
-        if (Build.VERSION.SDK_INT >= 37 &&
-            context.checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            permission.launch("android.permission.ACCESS_LOCAL_NETWORK")
-            error = "После выдачи разрешения нажми «Подключиться» ещё раз"; return
         }
         scope.launch {
             loading = true; error = null
@@ -678,8 +667,12 @@ private fun LoginScreen(
                     if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     else Text("Подключиться")
                 }
-                Text("Пароль используется только для входа и не сохраняется на устройстве.",
+                Text("Для быстрого повторного входа адрес и учётные данные сохраняются в зашифрованном хранилище Android.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (url.trim().startsWith("http://", ignoreCase = true)) {
+                    Text("Соединение HTTP не шифрует пароль и данные управления в сети. Используй HTTPS с доверенным сертификатом или защищённую VPN/локальную сеть.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }
@@ -730,7 +723,7 @@ private fun SettingsScreen(
         }
         item {
             InfoCard("Подключение") {
-                Text("Адрес и учётные данные задаются на экране входа. Пароль LuCI не сохраняется приложением.",
+                Text("Адрес, имя пользователя и пароль LuCI хранятся в зашифрованном хранилище Android Keystore.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.Logout, contentDescription = null)
@@ -740,7 +733,21 @@ private fun SettingsScreen(
             }
         }
         item {
-            Text("RouterDash 2.5.0 · Нативное приложение", modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            InfoCard("Конфиденциальность") {
+                Text("RouterDash работает напрямую с выбранным роутером. Подробно о сетевых запросах, локальном хранении учётных данных и удалении данных — в политике конфиденциальности.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val uriHandler = LocalUriHandler.current
+                TextButton(onClick = {
+                    uriHandler.openUri("https://github.com/pozakonstantin-sketch/luci-app-routerdash/blob/main/docs/privacy-policy.md")
+                }) {
+                    Icon(Icons.Outlined.Policy, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Политика конфиденциальности")
+                }
+            }
+        }
+        item {
+            Text("RouterDash ${BuildConfig.VERSION_NAME} · Нативное приложение", modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

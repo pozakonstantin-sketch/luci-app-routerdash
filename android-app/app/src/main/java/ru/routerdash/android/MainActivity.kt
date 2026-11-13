@@ -727,7 +727,7 @@ private fun SettingsScreen(
             }
         }
         item {
-            Text("RouterDash 2.2.0 · Нативное приложение", modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            Text("RouterDash 2.3.0 · Нативное приложение", modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

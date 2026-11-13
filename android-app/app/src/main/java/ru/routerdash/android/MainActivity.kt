@@ -199,9 +199,22 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                             }
                             snapshot.copy(network = ifaceDump, wireless = radios)
                         }
-                        Screen.DEVICES -> snapshot.copy(devices = client.call("luci-rpc", "getDHCPLeases"))
+                        Screen.DEVICES -> {
+                            val leases = client.call("luci-rpc", "getDHCPLeases")
+                            val arpRaw = readUbusFile(client, "/proc/net/arp").orEmpty()
+                            val arp = JSONArray()
+                            arpRaw.lineSequence().drop(1).forEach { row ->
+                                val fields = row.trim().split(Regex("\\s+"))
+                                if (fields.size >= 6 && fields[2] == "0x2") {
+                                    arp.put(JSONObject().put("ipaddr", fields[0]).put("macaddr", fields[3]).put("device", fields[5]))
+                                }
+                            }
+                            val combined = JSONObject().put("dhcp_leases", leases.optJSONArray("dhcp_leases") ?: JSONArray())
+                                .put("arp_entries", arp)
+                            snapshot.copy(devices = combined)
+                        }
                         Screen.SERVICES -> snapshot.copy(services = client.call("rc", "list"))
-                        Screen.LOGS -> snapshot.copy(logs = client.call("log", "read", JSONObject().put("lines", 300).put("stream", false).put("oneshot", true)))
+                        Screen.LOGS -> snapshot.copy(logs = client.call("log", "read", JSONObject().put("lines", 300)))
                     }
                 }
                 if (screen == Screen.OVERVIEW) {
@@ -649,47 +662,56 @@ private fun NetworkScreen(result: JSONObject?, wireless: JSONObject?) {
 
 @Composable
 private fun DevicesScreen(result: JSONObject?) {
-    val list = result?.optJSONArray("dhcp_leases")
+    val leases = result?.optJSONArray("dhcp_leases")
+    val arp = result?.optJSONArray("arp_entries")
+    data class Device(val ip: String, val mac: String, val hostname: String, val source: String, val expires: String)
+    val devices = remember(result) {
+        val merged = linkedMapOf<String, Device>()
+        if (leases != null) for (i in 0 until leases.length()) {
+            val item = leases.optJSONObject(i) ?: continue
+            val mac = item.optString("macaddr").uppercase()
+            val ip = item.optString("ipaddr")
+            val key = mac.ifBlank { ip }
+            if (key.isNotBlank()) merged[key] = Device(ip, mac, item.optString("hostname", "Без имени"), "DHCP", item.optString("expires", "—"))
+        }
+        if (arp != null) for (i in 0 until arp.length()) {
+            val item = arp.optJSONObject(i) ?: continue
+            val mac = item.optString("macaddr").uppercase()
+            val ip = item.optString("ipaddr")
+            val key = mac.ifBlank { ip }
+            if (key.isNotBlank() && !merged.containsKey(key))
+                merged[key] = Device(ip, mac, "Неизвестное устройство", "ARP", "—")
+        }
+        merged.values.sortedWith(compareBy<Device> { it.hostname == "Неизвестное устройство" }.thenBy { it.hostname })
+    }
     LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Устройства", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Surface(color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f), shape = MaterialTheme.shapes.small) {
-                    Text("${list?.length() ?: 0} DHCP", Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    Text("${devices.size} в сети", Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelMedium)
                 }
             }
+            Text("DHCP-аренды объединены с ARP-таблицей; дубликаты по MAC скрыты.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (list == null || list.length() == 0) item { EmptyState("Нет активных DHCP-аренд") }
-        else items((0 until list.length()).map { list.optJSONObject(it) ?: JSONObject() }) { lease ->
-            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.13f),
-                        shape = MaterialTheme.shapes.medium, modifier = Modifier.size(42.dp)) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Outlined.Devices, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                        }
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(lease.optString("hostname", "Без имени"), fontWeight = FontWeight.SemiBold, maxLines = 1)
-                        Text(lease.optString("ipaddr", "IP неизвестен"), color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.bodySmall)
-                        Text(lease.optString("macaddr", "MAC неизвестен"), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall)
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("DHCP", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-                        Text(lease.optString("expires", "—"), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall)
-                    }
+        if (result == null) item { EmptyState("Не удалось получить список устройств.") }
+        else if (devices.isEmpty()) item { EmptyState("Активных DHCP-аренд и ARP-записей нет.") }
+        else items(devices, key = { it.mac.ifBlank { it.ip } }) { device ->
+            InfoCard(device.hostname) {
+                InfoLine("IP-адрес", device.ip.ifBlank { "—" })
+                InfoLine("MAC-адрес", device.mac.ifBlank { "—" })
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(device.source, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                    if (device.source == "DHCP") Text("Аренда: ${device.expires}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
     }
 }
-
 @Composable
 private fun ServicesScreen(result: JSONObject?, api: RouterApi?, onRefresh: () -> Unit) {
     val names = result?.keys()?.asSequence()?.toList()?.sorted() ?: emptyList()
@@ -781,23 +803,47 @@ private fun ServicesScreen(result: JSONObject?, api: RouterApi?, onRefresh: () -
 
 @Composable
 private fun LogsScreen(result: JSONObject?) {
-    val list = result?.optJSONArray("log")
+    val list = result?.optJSONArray("log") ?: result?.optJSONArray("entries")
+    var query by rememberSaveable { mutableStateOf("") }
+    var selectedLevel by rememberSaveable { mutableStateOf("Все") }
+    val entries = remember(result, query, selectedLevel) {
+        val parsed = if (list == null) emptyList() else (0 until list.length()).mapNotNull { list.optJSONObject(it) }
+        parsed.filter { entry ->
+            val message = entry.optString("msg", entry.optString("message", ""))
+            val priority = entry.optString("priority", entry.optString("level", ""))
+            val matchesText = query.isBlank() || message.contains(query, ignoreCase = true)
+            val normalized = priority.lowercase()
+            val matchesLevel = selectedLevel == "Все" ||
+                (selectedLevel == "Ошибка" && normalized in listOf("err", "error", "crit", "alert", "emerg", "3", "2", "1", "0")) ||
+                (selectedLevel == "Предупреждение" && normalized in listOf("warn", "warning", "4"))
+            matchesText && matchesLevel
+        }.reversed()
+    }
     LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { Text("Системный журнал", style = MaterialTheme.typography.headlineSmall) }
-        if (result == null) item { EmptyState("Не удалось получить журнал. Проверь доступ к ubus log.read.") }
-        else if (list == null || list.length() == 0) item { EmptyState("Журнал пуст или недоступен") }
-        else items((0 until list.length()).map { list.optJSONObject(it) ?: JSONObject() }.reversed()) { line ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(line.optString("msg", "—"))
-                    Text(line.optString("time", ""), style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+        item { Text("Системный журнал", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        item {
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
+                singleLine = true, label = { Text("Поиск по сообщению") }, leadingIcon = { Icon(Icons.Outlined.Search, null) })
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                listOf("Все", "Ошибка", "Предупреждение").forEach { level ->
+                    FilterChip(selected = selectedLevel == level, onClick = { selectedLevel = level }, label = { Text(level) })
                 }
+            }
+        }
+        if (result == null) item { EmptyState("Не удалось получить журнал. Проверь доступ к ubus log.read.") }
+        else if (entries.isEmpty()) item { EmptyState("Нет записей, соответствующих фильтру.") }
+        else items(entries) { line ->
+            val message = line.optString("msg", line.optString("message", "—"))
+            val timestamp = line.optString("time", line.optString("timestamp", ""))
+            val priority = line.optString("priority", line.optString("level", ""))
+            InfoCard(priority.ifBlank { "Системное сообщение" }) {
+                Text(message, style = MaterialTheme.typography.bodyMedium)
+                if (timestamp.isNotBlank()) Text(timestamp, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
 }
-
 @Composable
 private fun GaugeCard(title: String, value: String, progress: Float, caption: String,
                       modifier: Modifier = Modifier, accent: androidx.compose.ui.graphics.Color) {

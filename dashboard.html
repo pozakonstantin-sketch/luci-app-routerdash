@@ -368,12 +368,12 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
     <div class="card">
       <h3>Быстрые действия</h3>
       <div class="links" style="flex-direction:column">
-        <a href="/cgi-bin/luci/" target="_blank" rel="noopener noreferrer">🧭 LuCI · OpenWrt</a>
-        <a href="/ariang/" target="_blank">⬇ AriaNG · менеджер загрузок</a>
-        <a href="/cgi-bin/luci/admin/vpn/tailscale/setting" target="_blank">🌐 Tailscale</a>
-        <a href="/cgi-bin/luci/admin/services/tachyon/tachyon" target="_blank">🛡 Tachyon</a>
-        <a href="/cgi-bin/luci/admin/system/package-manager" target="_blank">📦 Менеджер пакетов</a>
-        <a href="/cgi-bin/luci/admin/status/logs" target="_blank">📜 Логи LuCI</a>
+        <a href="/cgi-bin/luci/" target="_blank" rel="noopener noreferrer" rel="noopener noreferrer">🧭 LuCI · OpenWrt</a>
+        <a href="/ariang/" target="_blank" rel="noopener noreferrer">⬇ AriaNG · менеджер загрузок</a>
+        <a href="/cgi-bin/luci/admin/vpn/tailscale/setting" target="_blank" rel="noopener noreferrer">🌐 Tailscale</a>
+        <a href="/cgi-bin/luci/admin/services/tachyon/tachyon" target="_blank" rel="noopener noreferrer">🛡 Tachyon</a>
+        <a href="/cgi-bin/luci/admin/system/package-manager" target="_blank" rel="noopener noreferrer">📦 Менеджер пакетов</a>
+        <a href="/cgi-bin/luci/admin/status/logs" target="_blank" rel="noopener noreferrer">📜 Логи LuCI</a>
       </div>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
         <button class="btn" id="actWifi">Перезапустить Wi-Fi</button>
@@ -469,7 +469,7 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <input class="filter" id="arUri" style="flex:1;min-width:280px" placeholder="https://… или magnet:">
       <button class="btn" id="arAdd">Добавить в aria2</button>
-      <a class="btn" href="/ariang/" target="_blank" style="line-height:1.6">Открыть AriaNG</a>
+      <a class="btn" href="/ariang/" target="_blank" rel="noopener noreferrer" style="line-height:1.6">Открыть AriaNG</a>
     </div>
     <div class="tblwrap" style="margin-top:12px"><table><thead><tr>
       <th>Задача</th><th>Статус</th><th class="num">Прогресс</th><th class="num">Скорость</th><th class="num">Осталось</th>
@@ -819,7 +819,7 @@ function renderTachyon(){
   }
   box.innerHTML=`<div class="kv"><span>🛰 Tachyon</span><span><b class="badge ${cls}">${label}</b></span></div>
     <div class="links" style="margin-top:8px">
-      <a href="/cgi-bin/luci/admin/services/tachyon" target="_blank">Открыть Tachyon</a>
+      <a href="/cgi-bin/luci/admin/services/tachyon" target="_blank" rel="noopener noreferrer">Открыть Tachyon</a>
     </div>`;
 }
 

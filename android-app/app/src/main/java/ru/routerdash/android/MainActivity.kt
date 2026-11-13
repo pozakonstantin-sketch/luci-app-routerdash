@@ -210,6 +210,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         }
                         Screen.DEVICES -> {
                             val leases = client.call("luci-rpc", "getDHCPLeases")
+                            val leaseArray = findArray(leases, listOf("dhcp_leases", "leases", "results", "entries"))
                             val arpRaw = readUbusFile(client, "/proc/net/arp").orEmpty()
                             val arp = JSONArray()
                             arpRaw.lineSequence().drop(1).forEach { row ->
@@ -218,7 +219,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                     arp.put(JSONObject().put("ipaddr", fields[0]).put("macaddr", fields[3]).put("device", fields[5]))
                                 }
                             }
-                            val combined = JSONObject().put("dhcp_leases", leases.optJSONArray("dhcp_leases") ?: JSONArray())
+                            val combined = JSONObject().put("dhcp_leases", leaseArray)
                                 .put("arp_entries", arp)
                             snapshot.copy(devices = combined)
                         }
@@ -1179,7 +1180,7 @@ private fun DownloadsScreen(result: JSONObject?, api: RouterApi?, onRefresh: () 
 }
 
 @Composable
-private fun ServicesScreen(result: JSONObject?, api: RouterApi?, onRefresh: () -> Unit) {
+private fun ServicesScreen(result: JSONObject?, processes: String?, api: RouterApi?, onRefresh: () -> Unit) {
     val names = result?.keys()?.asSequence()?.toList()?.sorted() ?: emptyList()
     val scope = rememberCoroutineScope()
     var busyService by remember { mutableStateOf<String?>(null) }
@@ -1242,6 +1243,10 @@ private fun ServicesScreen(result: JSONObject?, api: RouterApi?, onRefresh: () -
                         fontWeight = FontWeight.SemiBold)
                 }
                 InfoLine("Автозапуск", if (service.optBoolean("enabled")) "Включён" else "Выключен")
+                Text(serviceDescription(name), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val usage = processUsage(processes, name)
+                InfoLine("CPU процесса", usage?.first?.let { "$it%" } ?: "Нет данных")
+                InfoLine("ОЗУ процесса", usage?.second?.let { "$it%" } ?: "Нет данных")
                 if (hasRuntimeState) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { pendingAction = name to "start" },
@@ -1475,6 +1480,16 @@ private class RouterApi(val baseUrl: String) {
             return result.optJSONObject(1) ?: JSONObject()
         }
         return result as? JSONObject ?: JSONObject()
+    }
+
+    fun execReadOnly(command: String, args: List<String> = emptyList()): String {
+        val params = JSONArray()
+        args.forEach { params.put(it) }
+        val result = call("file", "exec", JSONObject().put("command", command).put("params", params))
+        val code = result.optInt("code", 0)
+        val stderr = result.optString("stderr")
+        if (code != 0) throw IllegalStateException(stderr.ifBlank { command + " завершилась с кодом " + code })
+        return result.optString("stdout")
     }
 
     fun aria2AddUri(uri: String) {

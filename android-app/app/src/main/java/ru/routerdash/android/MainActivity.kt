@@ -41,12 +41,13 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : FragmentActivity() {
     private val securityPrefs by lazy { getSharedPreferences("routerdash_security", MODE_PRIVATE) }
+    private val biometricUnlockSignal = androidx.compose.runtime.mutableIntStateOf(0)
     private var shouldAuthenticate = true
     private var promptVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { RouterDashApp(onEnableBiometric = { onEnabled -> enableBiometricLock(onEnabled) }) }
+        setContent { RouterDashApp(biometricUnlockSignal.intValue, onEnableBiometric = { onEnabled -> enableBiometricLock(onEnabled) }) }
     }
 
     override fun onStart() {
@@ -91,7 +92,7 @@ class MainActivity : FragmentActivity() {
         showBiometricPrompt(
             title = "Разблокировать RouterDash",
             subtitle = "Используй отпечаток пальца для продолжения",
-            onSuccess = { shouldAuthenticate = false },
+            onSuccess = { shouldAuthenticate = false; biometricUnlockSignal.intValue++ },
             onFailure = { finish() }
         )
     }
@@ -146,7 +147,7 @@ private data class Snapshot(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RouterDashApp(onEnableBiometric: (() -> Unit) -> Unit) {
+private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> Unit) -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("routerdash", 0) }
     val scope = rememberCoroutineScope()
@@ -302,12 +303,27 @@ private fun RouterDashApp(onEnableBiometric: (() -> Unit) -> Unit) {
                 withContext(Dispatchers.IO) { newApi.login(username.trim(), password) }
                 api = newApi
                 prefs.edit().putString("url", newApi.baseUrl).apply()
+                runCatching { encryptedCredentials(context).edit().putString("url", newApi.baseUrl).putString("username", username.trim()).putString("password", password).apply() }
                 connected = true
                 password = ""
                 refresh(Screen.OVERVIEW)
             } catch (e: Exception) {
                 error = e.message ?: "Не удалось подключиться"; connected = false
             } finally { loading = false }
+        }
+    }
+
+    LaunchedEffect(biometricUnlockSignal) {
+        if (biometricUnlockSignal > 0 && !connected) {
+            runCatching {
+                val saved = encryptedCredentials(context)
+                val savedUrl = saved.getString("url", null)
+                val savedUser = saved.getString("username", null)
+                val savedPassword = saved.getString("password", null)
+                if (!savedUrl.isNullOrBlank() && !savedUser.isNullOrBlank() && !savedPassword.isNullOrBlank()) {
+                    url = savedUrl; username = savedUser; password = savedPassword; connect()
+                } else error = "Нет сохранённых данных входа. Подключись по паролю один раз, затем вход по отпечатку будет автоматическим."
+            }.onFailure { error = "Не удалось открыть защищённые данные входа: " + (it.message ?: "ошибка") }
         }
     }
 
@@ -370,6 +386,7 @@ private fun RouterDashApp(onEnableBiometric: (() -> Unit) -> Unit) {
                         )
                         entries.forEach { (screen, icon) ->
                             NavigationBarItem(
+                                modifier = Modifier.width(76.dp),
                                 selected = selected == screen,
                                 onClick = { selected = screen; refresh(screen) },
                                 icon = { Icon(icon, contentDescription = screen.title) },
@@ -512,7 +529,8 @@ private fun OverviewScreen(s: Snapshot) {
     val info = s.info
     val mem = info?.optJSONObject("memory")
     val total = mem?.optLong("total") ?: 0L
-    val available = mem?.optLong("available") ?: 0L
+    val available = mem?.optLong("available", -1L)?.takeIf { it >= 0L }
+        ?: ((mem?.optLong("free") ?: 0L) + (mem?.optLong("buffered") ?: 0L) + (mem?.optLong("cached") ?: 0L))
     val used = (total - available).coerceAtLeast(0L)
     val ramPercent = if (total > 0) (used.toFloat() / total).coerceIn(0f, 1f) else 0f
     val load = info?.optJSONArray("load")?.optLong(0)?.let { String.format("%.2f", it / 1000.0) } ?: "—"
@@ -643,63 +661,49 @@ private fun CpuHistoryChart(history: List<Int>) {
 
 @Composable
 private fun NetworkInformationCard(s: Snapshot) {
-    val rx = s.sessionRxBytes
-    val tx = s.sessionTxBytes
-    val total = rx + tx
-    val rxColor = MaterialTheme.colorScheme.primary
-    val txColor = androidx.compose.ui.graphics.Color(0xFF31C879)
-    InfoCard("Network Information") {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(formatBytes(rx), style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold)
-                    Text("↓ Получено за сеанс", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(formatBytes(tx), style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold)
-                    Text("↑ Передано за сеанс", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            val trackColor = MaterialTheme.colorScheme.surfaceVariant
-            Box(Modifier.size(142.dp), contentAlignment = Alignment.Center) {
-                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                    val stroke = 17.dp.toPx()
-                    drawArc(trackColor, -90f, 360f, false,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-                    if (total > 0L) {
-                        val rxSweep = 360f * rx.toFloat() / total.toFloat()
-                        drawArc(rxColor, -90f, rxSweep, false,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke,
-                                cap = androidx.compose.ui.graphics.StrokeCap.Round))
-                        drawArc(txColor, -90f + rxSweep, 360f - rxSweep, false,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke,
-                                cap = androidx.compose.ui.graphics.StrokeCap.Round))
-                    }
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(formatBytes(total), style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold)
-                    Text("Всего", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+    val maxRate = maxOf(s.rxRate ?: 0L, s.txRate ?: 0L, 1024L)
+    InfoCard("Скорость интернет-соединения") {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Speedometer("Загрузка", s.rxRate?.let { formatRate(it) } ?: "—",
+                ((s.rxRate ?: 0L).toFloat() / maxRate).coerceIn(0f, 1f),
+                MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
+            Speedometer("Отдача", s.txRate?.let { formatRate(it) } ?: "—",
+                ((s.txRate ?: 0L).toFloat() / maxRate).coerceIn(0f, 1f),
+                MaterialTheme.colorScheme.primary, Modifier.weight(1f))
         }
         Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("↓ ${s.rxRate?.let { formatRate(it) } ?: "—"}",
-                color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelLarge)
-            Text("↑ ${s.txRate?.let { formatRate(it) } ?: "—"}",
-                color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+            Column { Text(formatBytes(s.sessionRxBytes), fontWeight = FontWeight.SemiBold); Text("Получено за сеанс", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Column(horizontalAlignment = Alignment.End) { Text(formatBytes(s.sessionTxBytes), fontWeight = FontWeight.SemiBold); Text("Передано за сеанс", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        Text("Счётчики с момента подключения приложения; не являются статистикой за месяц",
-            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+        Text("Шкала автоматически подстраивается под максимальную текущую скорость.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
     }
 }
 
+@Composable
+private fun Speedometer(title: String, value: String, progress: Float, accent: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.BottomCenter) {
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                val stroke = 10.dp.toPx()
+                val diameter = (size.width - stroke).coerceAtLeast(1f)
+                val top = size.height - diameter / 2f - stroke / 2f
+                val arcSize = androidx.compose.ui.geometry.Size(diameter, diameter)
+                val left = (size.width - diameter) / 2f
+                drawArc(MaterialTheme.colorScheme.surfaceVariant, 180f, 180f, false, androidx.compose.ui.geometry.Offset(left, top), arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                drawArc(accent, 180f, 180f * progress.coerceIn(0f, 1f), false, androidx.compose.ui.geometry.Offset(left, top), arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                val angle = Math.PI * (1.0 + progress.coerceIn(0f, 1f).toDouble())
+                val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height - stroke / 2f)
+                val radius = diameter / 2f - stroke
+                val end = androidx.compose.ui.geometry.Offset(center.x + kotlin.math.cos(angle).toFloat() * radius, center.y + kotlin.math.sin(angle).toFloat() * radius)
+                drawLine(accent, center, end, strokeWidth = 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                drawCircle(accent, radius = 4.dp.toPx(), center = center)
+            }
+            Text(value, Modifier.padding(bottom = 2.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+    }
+}
 @Composable
 private fun NetworkScreen(result: JSONObject?, wireless: JSONObject?) {
     val list = result?.optJSONArray("interface")
@@ -1449,7 +1453,7 @@ private fun parseCpuTicks(raw: String?): LongArray? {
     val line = raw?.lineSequence()?.firstOrNull { it.startsWith("cpu ") } ?: return null
     val values = line.trim().split(Regex("\\s+")).drop(1).mapNotNull { it.toLongOrNull() }
     if (values.size < 5) return null
-    val total = values.sum()
+    val total = values.take(8).sum()
     val idle = values[3] + (values.getOrNull(4) ?: 0L)
     return longArrayOf(total, idle)
 }
@@ -1475,6 +1479,14 @@ private fun duration(seconds: Long): String {
     return if (days > 0) days.toString() + "д " + hours + "ч" else hours.toString() + "ч " + minutes + "м"
 }
 
+
+@Suppress("DEPRECATION")
+private fun encryptedCredentials(context: android.content.Context): android.content.SharedPreferences {
+    val key = androidx.security.crypto.MasterKey.Builder(context).setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM).build()
+    return androidx.security.crypto.EncryptedSharedPreferences.create(context, "routerdash_credentials", key,
+        androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
+}
 
 private fun saveRouterDashWidgetSnapshot(context: android.content.Context, snapshot: Snapshot, routerUrl: String) {
     val info = snapshot.info

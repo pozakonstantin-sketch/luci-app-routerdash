@@ -31,6 +31,18 @@ internal data class RemoteSyncEntry(
 )
 
 private data class TransferResult(val copied: Int, val skipped: Int, val bytes: Long)
+private data class SyncComparison(
+    val localFiles: Int = 0,
+    val remoteFiles: Int = 0,
+    val identical: Int = 0,
+    val changed: Int = 0,
+    val onlyLocal: Int = 0,
+    val onlyRemote: Int = 0
+)
+
+private fun sameFile(localSize: Long, localModified: Long, remote: RemoteSyncEntry): Boolean =
+    localSize == remote.size && localModified > 0L && remote.modifiedAt > 0L &&
+        kotlin.math.abs(localModified - remote.modifiedAt) <= 2_000L
 
 @Composable
 internal fun SyncScreen(
@@ -47,6 +59,7 @@ internal fun SyncScreen(
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Выбери папку телефона и укажи каталог SSD на роутере.") }
     var lastResult by remember { mutableStateOf<TransferResult?>(null) }
+    var comparison by remember { mutableStateOf<SyncComparison?>(null) }
 
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -62,11 +75,48 @@ internal fun SyncScreen(
             localTreeUri = uri
             status = "Папка телефона выбрана. Можно запускать передачу файлов."
             lastResult = null
+            comparison = null
         }
     }
 
     val localTree = remember(localTreeUri) {
         localTreeUri?.let { DocumentFile.fromTreeUri(context, it) }
+    }
+
+    fun compareFolders() {
+        val activeSsh = ssh
+        val tree = localTree
+        val target = remotePath.trim().trimEnd('/').ifBlank { "/" }
+        if (!sshConnected || activeSsh == null) {
+            status = "Сначала подключись к роутеру по SSH."
+            return
+        }
+        if (tree == null || !tree.isDirectory) {
+            status = "Сначала выбери папку на телефоне."
+            return
+        }
+        if (!target.startsWith("/") || target.split('/').any { it == ".." }) {
+            status = "Укажи абсолютный путь на SSD без сегментов '..'."
+            return
+        }
+        busy = true
+        comparison = null
+        status = "Сравниваю содержимое телефона и SSD…"
+        scope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    activeSsh.verifyMountedStorage(target)
+                    activeSsh.ensureRemoteDirectory(target)
+                    compareDirectories(activeSsh, tree, target)
+                }
+                comparison = result
+                status = "Сравнение завершено. Исходные файлы не изменялись."
+            } catch (e: Exception) {
+                status = "Ошибка сравнения: ${e.message ?: "не удалось прочитать папки"}"
+            } finally {
+                busy = false
+            }
+        }
     }
 
     fun runTransfer(upload: Boolean) {
@@ -179,6 +229,15 @@ internal fun SyncScreen(
                         Text("На телефон")
                     }
                 }
+                OutlinedButton(
+                    onClick = { compareFolders() },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy && sshConnected && localTree != null
+                ) {
+                    Icon(Icons.Outlined.Refresh, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Сравнить папки")
+                }
                 if (busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text("Не закрывай приложение до завершения передачи.", style = MaterialTheme.typography.labelSmall)
@@ -193,6 +252,21 @@ internal fun SyncScreen(
                     InfoLine("Скопировано файлов", result.copied.toString())
                     InfoLine("Пропущено", result.skipped.toString())
                     InfoLine("Передано", formatBytes(result.bytes))
+                }
+                comparison?.let { result ->
+                    HorizontalDivider()
+                    Text("Результат сравнения", fontWeight = FontWeight.SemiBold)
+                    InfoLine("Файлов на телефоне", result.localFiles.toString())
+                    InfoLine("Файлов на SSD", result.remoteFiles.toString())
+                    InfoLine("Совпадают", result.identical.toString())
+                    InfoLine("Отличаются", result.changed.toString())
+                    InfoLine("Только на телефоне", result.onlyLocal.toString())
+                    InfoLine("Только на SSD", result.onlyRemote.toString())
+                    Text(
+                        "Сравнение учитывает размер и время изменения. Если файловая система не сообщает время, файл помечается как требующий проверки.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
                 Text(
                     "Передача выполняется только по нажатию кнопки. Существующие файлы с одинаковым именем могут быть перезаписаны; перед первой синхронизацией рекомендуется проверить содержимое выбранных папок.",
@@ -222,6 +296,7 @@ private fun uploadDirectory(
     var bytes = 0L
 
     fun walk(local: DocumentFile, remote: String) {
+        val remoteEntries = ssh.listRemote(remote).associateBy { it.name }
         local.listFiles().forEach { child ->
             val name = child.name?.takeIf { it.isNotBlank() } ?: return@forEach
             require(name != "." && name != ".." && !name.contains('/')) { "Недопустимое имя файла: $name" }
@@ -231,11 +306,17 @@ private fun uploadDirectory(
                 walk(child, remoteChild)
             } else if (child.isFile) {
                 val size = child.length()
-                val input = context.contentResolver.openInputStream(child.uri)
-                    ?: throw FileNotFoundException("Не удалось открыть локальный файл $name")
-                input.use { ssh.uploadFile(it, remoteChild) }
-                copied++
-                bytes += size
+                val existing = remoteEntries[name]
+                if (existing != null && !existing.isDirectory &&
+                    sameFile(size, child.lastModified(), existing)) {
+                    skipped++
+                } else {
+                    val input = context.contentResolver.openInputStream(child.uri)
+                        ?: throw FileNotFoundException("Не удалось открыть локальный файл $name")
+                    input.use { ssh.uploadFile(it, remoteChild) }
+                    copied++
+                    bytes += size
+                }
             }
         }
     }
@@ -271,17 +352,96 @@ private fun downloadDirectory(
                 val mime = android.webkit.MimeTypeMap.getSingleton()
                     .getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
                     ?: "application/octet-stream"
-                val destination = existing ?: local.createFile(mime, name)
-                    ?: throw IllegalStateException("Не удалось создать файл $name")
-                val output = context.contentResolver.openOutputStream(destination.uri, "wt")
-                    ?: throw FileNotFoundException("Не удалось записать файл $name")
-                output.use { ssh.downloadFile("$remote/$name", it) }
-                copied++
-                bytes += entry.size
+                if (existing != null && sameFile(existing.length(), existing.lastModified(), entry)) {
+                    skipped++
+                } else {
+                    val destination = existing ?: local.createFile(mime, name)
+                        ?: throw IllegalStateException("Не удалось создать файл $name")
+                    val output = context.contentResolver.openOutputStream(destination.uri, "wt")
+                        ?: throw FileNotFoundException("Не удалось записать файл $name")
+                    output.use { ssh.downloadFile("$remote/$name", it) }
+                    copied++
+                    bytes += entry.size
+                }
             }
         }
     }
 
     walk(remoteDirectory, localDirectory)
     return TransferResult(copied, skipped, bytes)
+}
+
+private fun compareDirectories(
+    ssh: SshTerminal,
+    localDirectory: DocumentFile,
+    remoteDirectory: String
+): SyncComparison {
+    var localFiles = 0
+    var remoteFiles = 0
+    var identical = 0
+    var changed = 0
+    var onlyLocal = 0
+    var onlyRemote = 0
+
+    fun countLocalFiles(directory: DocumentFile): Int =
+        directory.listFiles().sumOf { child ->
+            when {
+                child.isDirectory -> countLocalFiles(child)
+                child.isFile -> 1
+                else -> 0
+            }
+        }
+
+    fun countRemoteFiles(path: String): Int =
+        ssh.listRemote(path).sumOf { entry ->
+            if (entry.isDirectory) countRemoteFiles("$path/${entry.name}") else 1
+        }
+
+    fun walk(local: DocumentFile, remote: String) {
+        val localEntries = local.listFiles().associateBy { it.name ?: "" }
+        val remoteEntries = ssh.listRemote(remote).associateBy { it.name }
+        (localEntries.keys + remoteEntries.keys).filter { it.isNotBlank() }.forEach { name ->
+            val localEntry = localEntries[name]
+            val remoteEntry = remoteEntries[name]
+            when {
+                localEntry != null && remoteEntry == null -> {
+                    if (localEntry.isDirectory) {
+                        val count = countLocalFiles(localEntry)
+                        localFiles += count
+                        onlyLocal += count
+                    } else if (localEntry.isFile) {
+                        localFiles++
+                        onlyLocal++
+                    }
+                }
+                localEntry == null && remoteEntry != null -> {
+                    if (remoteEntry.isDirectory) {
+                        val count = countRemoteFiles("$remote/$name")
+                        remoteFiles += count
+                        onlyRemote += count
+                    } else {
+                        remoteFiles++
+                        onlyRemote++
+                    }
+                }
+                localEntry != null && remoteEntry != null -> {
+                    if (localEntry.isDirectory && remoteEntry.isDirectory) {
+                        walk(localEntry, "$remote/$name")
+                    } else if (localEntry.isFile && !remoteEntry.isDirectory) {
+                        localFiles++
+                        remoteFiles++
+                        if (sameFile(localEntry.length(), localEntry.lastModified(), remoteEntry)) identical++
+                        else changed++
+                    } else {
+                        if (localEntry.isFile) localFiles++
+                        if (!remoteEntry.isDirectory) remoteFiles++
+                        changed++
+                    }
+                }
+            }
+        }
+    }
+
+    walk(localDirectory, remoteDirectory)
+    return SyncComparison(localFiles, remoteFiles, identical, changed, onlyLocal, onlyRemote)
 }

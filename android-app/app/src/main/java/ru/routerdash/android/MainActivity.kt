@@ -920,6 +920,83 @@ private fun StorageScreen(mounts: JSONArray?, onRefresh: () -> Unit) {
     }
 }
 
+private fun findArray(root: JSONObject?, keys: List<String>): JSONArray {
+    if (root == null) return JSONArray()
+    keys.forEach { key -> root.optJSONArray(key)?.let { return it } }
+    root.keys().asSequence().forEach { key ->
+        val nested = root.optJSONObject(key)
+        keys.forEach { name -> nested?.optJSONArray(name)?.let { return it } }
+    }
+    return JSONArray()
+}
+
+private fun parseDfOutput(output: String): JSONArray {
+    val rows = JSONArray()
+    output.lineSequence().drop(1).forEach { line ->
+        val parts = line.trim().split(Regex("\\s+"))
+        if (parts.size >= 6) {
+            val blockSize = parts[1].toLongOrNull() ?: return@forEach
+            val used = parts[2].toLongOrNull() ?: return@forEach
+            val available = parts[3].toLongOrNull() ?: return@forEach
+            rows.put(JSONObject().put("device", parts[0]).put("mount", parts.last())
+                .put("size", blockSize * 1024L).put("used", used * 1024L)
+                .put("avail", available * 1024L))
+        }
+    }
+    return rows
+}
+
+private fun parseLogReadOutput(output: String): JSONObject {
+    val entries = JSONArray()
+    output.lineSequence().filter { it.isNotBlank() }.forEach { line ->
+        entries.put(JSONObject().put("msg", line).put("priority", "info"))
+    }
+    return JSONObject().put("log", entries)
+}
+
+private fun serviceDescription(name: String): String {
+    val descriptions = mapOf(
+        "dnsmasq" to "Локальный DNS и DHCP: выдаёт IP-адреса устройствам и разрешает доменные имена.",
+        "odhcpd" to "Объявления IPv6, DHCPv6 и Router Advertisement в локальной сети.",
+        "netifd" to "Управляет сетевыми интерфейсами, WAN/LAN-подключениями и адресацией.",
+        "firewall" to "Межсетевой экран: фильтрует входящий, исходящий и транзитный трафик.",
+        "firewall4" to "Применяет правила межсетевого экрана на базе nftables.",
+        "dropbear" to "SSH-сервер для защищённого удалённого доступа к роутеру.",
+        "uhttpd" to "Встроенный HTTP/HTTPS-сервер, через который работает LuCI.",
+        "rpcd" to "Предоставляет RPC/ubus-доступ к функциям OpenWrt и LuCI.",
+        "log" to "Системный журнал: принимает и хранит сообщения служб и ядра.",
+        "cron" to "Планировщик периодических задач по расписанию.",
+        "sysntpd" to "Синхронизирует системное время по NTP.",
+        "tailscale" to "Защищённая mesh-VPN сеть для удалённого доступа без публичного IP.",
+        "sing-box" to "Прокси и маршрутизация трафика: VLESS, Shadowsocks и другие протоколы.",
+        "aria2" to "Фоновый менеджер загрузок HTTP/FTP/BitTorrent.",
+        "smbd" to "Общий доступ к файлам и папкам по протоколу SMB для ПК и телевизоров.",
+        "wsdd2" to "Обнаружение SMB-устройств в локальной сети Windows.",
+        "collectd" to "Собирает системные метрики CPU, памяти, дисков и сети.",
+        "irqbalance" to "Распределяет аппаратные прерывания между ядрами процессора."
+    )
+    return descriptions[name] ?: when {
+        name.startsWith("luci") -> "Компонент веб-интерфейса LuCI: предоставляет страницу или функцию управления роутером."
+        name.startsWith("ppp") -> "Обслуживает PPP/PPPoE-подключение к провайдеру."
+        name.startsWith("wpa") || name.startsWith("hostapd") -> "Управляет Wi-Fi точками доступа и аутентификацией беспроводных клиентов."
+        name.startsWith("ntp") -> "Синхронизация системного времени."
+        else -> "Системная служба OpenWrt. Назначение зависит от установленного пакета и конфигурации."
+    }
+}
+
+private fun processUsage(output: String?, service: String): Pair<String, String>? {
+    if (output.isNullOrBlank()) return null
+    val lines = output.lines()
+    val header = lines.firstOrNull { it.contains("PID") && (it.contains("%CPU") || it.contains("CPU")) } ?: return null
+    val columns = header.trim().split(Regex("\\s+"))
+    val cpuIndex = columns.indexOfFirst { it.equals("%CPU", true) || it.equals("CPU%", true) }
+    val memIndex = columns.indexOfFirst { it.equals("%VSZ", true) || it.equals("MEM%", true) || it.equals("%MEM", true) }
+    if (cpuIndex < 0 || memIndex < 0) return null
+    val row = lines.dropWhile { it != header }.drop(1).firstOrNull { it.contains(service, true) } ?: return null
+    val fields = row.trim().split(Regex("\\s+"))
+    return (fields.getOrNull(cpuIndex) ?: "—") to (fields.getOrNull(memIndex) ?: "—")
+}
+
 private fun packageDescription(name: String): String {
     val exact = mapOf(
         "adblock" to "Блокировка рекламы и трекеров на уровне DNS.",

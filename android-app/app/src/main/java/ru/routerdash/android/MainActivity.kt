@@ -126,7 +126,7 @@ class MainActivity : FragmentActivity() {
 }
 
 private enum class Screen(val title: String) {
-    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), PACKAGES("Пакеты"), DOWNLOADS("Загрузки"), SERVICES("Службы"), LOGS("Журнал")
+    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), PACKAGES("Пакеты"), DOWNLOADS("Загрузки"), SERVICES("Службы"), LOGS("Журнал"), SETTINGS("Настройки")
 }
 private data class TrafficPoint(val rx: Long, val tx: Long)
 private data class Snapshot(
@@ -155,6 +155,8 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var selected by rememberSaveable { mutableStateOf(Screen.OVERVIEW) }
+    var refreshIntervalSeconds by rememberSaveable { mutableIntStateOf(prefs.getInt("refresh_interval", 5).coerceIn(3, 60)) }
+    var biometricEnabled by remember { mutableStateOf(context.getSharedPreferences("routerdash_security", 0).getBoolean("biometric_enabled", false)) }
     var snapshot by remember { mutableStateOf(Snapshot()) }
     var previousCpu by remember { mutableStateOf<LongArray?>(null) }
     var previousTraffic by remember { mutableStateOf<LongArray?>(null) }
@@ -221,6 +223,7 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                         Screen.DOWNLOADS -> snapshot.copy(downloads = client.aria2Overview())
                         Screen.SERVICES -> snapshot.copy(services = client.call("rc", "list"))
                         Screen.LOGS -> snapshot.copy(logs = client.call("log", "read", JSONObject().put("lines", 300)))
+                        Screen.SETTINGS -> snapshot
                     }
                 }
                 if (screen == Screen.OVERVIEW) {
@@ -298,10 +301,10 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
         }
     }
 
-    LaunchedEffect(connected, selected) {
+    LaunchedEffect(connected, selected, refreshIntervalSeconds) {
         while (connected) {
             refresh(selected)
-            delay(5000)
+            delay(refreshIntervalSeconds * 1000L)
         }
     }
 
@@ -330,13 +333,13 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                             }
                         },
                         actions = {
-                            IconButton(onClick = onEnableBiometric) {
-                                Icon(Icons.Outlined.Fingerprint, contentDescription = "Включить вход по отпечатку")
+                            IconButton(onClick = { selected = Screen.SETTINGS }) {
+                                Icon(Icons.Outlined.Settings, contentDescription = "Настройки приложения")
                             }
                             if (loading) CircularProgressIndicator(Modifier.size(20.dp))
                             IconButton(onClick = { refresh() }) { Text("↻", style = MaterialTheme.typography.headlineSmall) }
-                            IconButton(onClick = { connected = false; api = null }) {
-                                Icon(Icons.Outlined.Settings, contentDescription = "Отключиться")
+                            IconButton(onClick = { connected = false; api = null; selected = Screen.OVERVIEW }) {
+                                Icon(Icons.Outlined.Logout, contentDescription = "Отключиться")
                             }
                         }
                     )
@@ -352,7 +355,8 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                             Screen.PACKAGES to Icons.Outlined.Inventory2,
                             Screen.DOWNLOADS to Icons.Outlined.Download,
                             Screen.SERVICES to Icons.Outlined.Settings,
-                            Screen.LOGS to Icons.Outlined.Article
+                            Screen.LOGS to Icons.Outlined.Article,
+                            Screen.SETTINGS to Icons.Outlined.Tune
                         )
                         entries.forEach { (screen, icon) ->
                             NavigationBarItem(
@@ -381,6 +385,20 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                         Screen.DOWNLOADS -> DownloadsScreen(snapshot.downloads, api) { refresh(Screen.DOWNLOADS) }
                         Screen.SERVICES -> ServicesScreen(snapshot.services, api) { refresh(Screen.SERVICES) }
                         Screen.LOGS -> LogsScreen(snapshot.logs)
+                        Screen.SETTINGS -> SettingsScreen(
+                            refreshIntervalSeconds = refreshIntervalSeconds,
+                            onIntervalChange = { value ->
+                                refreshIntervalSeconds = value
+                                prefs.edit().putInt("refresh_interval", value).apply()
+                            },
+                            biometricEnabled = biometricEnabled,
+                            onBiometricToggle = { enabled ->
+                                if (enabled) onEnableBiometric()
+                                else context.getSharedPreferences("routerdash_security", 0).edit().putBoolean("biometric_enabled", false).apply()
+                                biometricEnabled = enabled
+                            },
+                            onDisconnect = { connected = false; api = null; selected = Screen.OVERVIEW }
+                        )
                     }
                 }
             }
@@ -410,6 +428,67 @@ private fun LoginScreen(
                 Text("Пароль используется только для входа и не сохраняется на устройстве.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+    }
+}
+
+
+@Composable
+private fun SettingsScreen(
+    refreshIntervalSeconds: Int,
+    onIntervalChange: (Int) -> Unit,
+    biometricEnabled: Boolean,
+    onBiometricToggle: (Boolean) -> Unit,
+    onDisconnect: () -> Unit
+) {
+    LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Text("Настройки", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Параметры работы RouterDash на этом устройстве",
+                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        }
+        item {
+            InfoCard("Частота обновления") {
+                Text("Как часто приложение запрашивает данные у роутера.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(3, 5, 10, 15, 30, 60).forEach { seconds ->
+                        FilterChip(selected = refreshIntervalSeconds == seconds,
+                            onClick = { onIntervalChange(seconds) }, label = { Text("${seconds}с") })
+                    }
+                }
+                Text("Текущий интервал: $refreshIntervalSeconds сек.",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        item {
+            InfoCard("Защита приложения") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Вход по отпечатку")
+                        Text(if (biometricEnabled) "Защита включена" else "Защита выключена",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = biometricEnabled, onCheckedChange = onBiometricToggle)
+                }
+                Text("Используется системная биометрия Android.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        item {
+            InfoCard("Подключение") {
+                Text("Адрес и учётные данные задаются на экране входа. Пароль LuCI не сохраняется приложением.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.Logout, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Отключиться от роутера")
+                }
+            }
+        }
+        item {
+            Text("RouterDash 2.0.1 · Нативное приложение", modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

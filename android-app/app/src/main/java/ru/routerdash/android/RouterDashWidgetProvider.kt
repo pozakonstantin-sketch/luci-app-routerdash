@@ -17,6 +17,15 @@ class RouterDashWidgetProvider : AppWidgetProvider() {
         refreshAll(context)
     }
 
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        manager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: android.os.Bundle
+    ) {
+        updateWidget(context, manager, appWidgetId)
+    }
+
     companion object {
         fun refreshAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
@@ -26,7 +35,10 @@ class RouterDashWidgetProvider : AppWidgetProvider() {
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val prefs = context.getSharedPreferences("routerdash_widget_cache", Context.MODE_PRIVATE)
-            val views = RemoteViews(context.packageName, R.layout.routerdash_widget)
+            val options = manager.getAppWidgetOptions(widgetId)
+            val widthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+            val layoutId = if (widthDp >= 250) R.layout.routerdash_widget_expanded else R.layout.routerdash_widget
+            val views = RemoteViews(context.packageName, layoutId)
             val online = prefs.getBoolean("online", false)
             val updatedAt = prefs.getLong("updated_at", 0L)
             val fresh = updatedAt > 0L && System.currentTimeMillis() - updatedAt < 120_000L

@@ -738,56 +738,120 @@ private fun OverviewScreen(s: Snapshot) {
     val cpu = s.cpuPercent
     val ramLabel = if (total > 0L) "${(ramPercent * 100).toInt()}%" else "—"
     val health = when {
-        cpu == null || total <= 0L -> "Собираем показатели"
+        cpu == null || total <= 0L -> "Собираем данные"
         cpu >= 85 || ramPercent >= 0.90f -> "Нужна проверка"
-        else -> "Система работает нормально"
+        else -> "Всё работает"
     }
     val healthColor = if (health == "Нужна проверка")
         androidx.compose.ui.graphics.Color(0xFFFFB454)
     else androidx.compose.ui.graphics.Color(0xFF42D9A0)
-
+    val diskRows = s.storage
+    val rootDisk = (0 until (diskRows?.length() ?: 0)).mapNotNull { diskRows?.optJSONObject(it) }
+        .firstOrNull { it.optString("mount") in listOf("/overlay", "/", "/mnt/sda") }
+    val diskTotal = rootDisk?.optLong("size") ?: 0L
+    val diskUsed = rootDisk?.optLong("used") ?: 0L
+    val diskPercent = if (diskTotal > 0L) (diskUsed * 100L / diskTotal).toInt() else -1
+    val vpn = s.vpnStatus.orEmpty()
+    val vpnDetected = vpn.contains("tailscale", true) || vpn.contains("sing-box", true) ||
+        vpn.contains("xray", true) || vpn.contains("openvpn", true) || vpn.contains("wireguard", true)
+    val vpnLabel = when {
+        vpn.contains("Logged out", true) || vpn.contains("NeedsLogin", true) -> "Нужен вход"
+        vpnDetected -> "Обнаружен"
+        vpn.isBlank() -> "Проверяем…"
+        else -> "Не найден"
+    }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 220.dp),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(horizontal = 3.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             RouterStatusHero(hostname, model, health, healthColor, uptime)
         }
         item {
-            GaugeCard("Процессор", cpu?.let { "$it%" } ?: "—",
-                (cpu ?: 0) / 100f, "Загрузка CPU",
-                accent = androidx.compose.ui.graphics.Color(0xFFFF9A52))
+            GaugeCard("CPU", cpu?.let { "$it%" } ?: "—",
+                (cpu ?: 0) / 100f, "Процессор",
+                accent = androidx.compose.ui.graphics.Color(0xFFFF8A3D))
         }
         item {
-            GaugeCard("Оперативная память", ramLabel, ramPercent,
-                if (total > 0L) "Свободно ${formatBytes(available)}" else "Данные недоступны",
+            GaugeCard("RAM", ramLabel, ramPercent,
+                if (total > 0L) "Свободно ${formatBytes(available)}" else "Нет данных",
                 accent = androidx.compose.ui.graphics.Color(0xFF4FBEFF))
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            NetworkInformationCard(s)
+            InfoCard("Интернет · WAN") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    DashboardMetric("↓ Приём", s.rxRate?.let { formatRate(it) } ?: "—",
+                        androidx.compose.ui.graphics.Color(0xFF36D6C5), Modifier.weight(1f))
+                    DashboardMetric("↑ Передача", s.txRate?.let { formatRate(it) } ?: "—",
+                        androidx.compose.ui.graphics.Color(0xFFFF9A52), Modifier.weight(1f))
+                    DashboardMetric("Load average", load,
+                        androidx.compose.ui.graphics.Color(0xFFB58CFF), Modifier.weight(0.8f))
+                }
+            }
+        }
+        item {
+            DashboardMiniCard("Диск / overlay", if (diskPercent >= 0) "${diskPercent}%" else "—",
+                if (diskTotal > 0) "${formatBytes(diskUsed)} / ${formatBytes(diskTotal)}" else "Нет данных",
+                if (diskPercent >= 90) androidx.compose.ui.graphics.Color(0xFFFF5D73) else androidx.compose.ui.graphics.Color(0xFF55D6A7),
+                Icons.Outlined.Storage)
+        }
+        item {
+            DashboardMiniCard("VPN / туннели", vpnLabel,
+                if (vpn.contains("Logged out", true)) "Tailscale: нет входа" else "Tailscale · sing-box · VLESS",
+                if (vpnLabel == "Нужен вход") androidx.compose.ui.graphics.Color(0xFFFFB454) else androidx.compose.ui.graphics.Color(0xFF5CC8FF),
+                Icons.Outlined.VpnKey)
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            InfoCard("Система и прошивка") {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CompactSystemMetric("Аптайм", uptime, Modifier.weight(1f))
-                    CompactSystemMetric("Load average", load, Modifier.weight(1f))
-                    CompactSystemMetric("OpenWrt", board?.optJSONObject("release")?.optString("version", "—") ?: "—",
-                        Modifier.weight(1f))
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            InfoCard("Система · ${board?.optJSONObject("release")?.optString("version", "OpenWrt") ?: "OpenWrt"}") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     CompactSystemMetric("Ядро", board?.optString("kernel", "—") ?: "—", Modifier.weight(1f))
                     CompactSystemMetric("Архитектура", board?.optString("system", "—") ?: "—", Modifier.weight(1f))
+                    CompactSystemMetric("Аптайм", uptime, Modifier.weight(1f))
                 }
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            StatusRecommendationsCard(
-                cpuPercent = cpu,
-                ramPercent = if (total > 0L) (ramPercent * 100f).toInt() else null,
-                availableRam = available.takeIf { total > 0L }
-            )
+            val warning = (cpu ?: 0) >= 85 || (total > 0L && ramPercent >= 0.90f) || diskPercent >= 90
+            Surface(
+                color = (if (warning) androidx.compose.ui.graphics.Color(0xFFFFB454) else androidx.compose.ui.graphics.Color(0xFF42D9A0)).copy(alpha = 0.12f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(15.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(if (warning) Icons.Outlined.WarningAmber else Icons.Outlined.Verified,
+                        null, tint = if (warning) androidx.compose.ui.graphics.Color(0xFFFFB454) else androidx.compose.ui.graphics.Color(0xFF42D9A0))
+                    Text(if (warning) "Есть показатели, требующие внимания" else "Роутер работает штатно · критичных отклонений нет",
+                        style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardMetric(label: String, value: String, accent: androidx.compose.ui.graphics.Color, modifier: Modifier) {
+    Column(modifier.padding(vertical = 1.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+            color = accent, maxLines = 1)
+    }
+}
+
+@Composable
+private fun DashboardMiniCard(title: String, value: String, detail: String,
+                              accent: androidx.compose.ui.graphics.Color, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    InfoCard(title) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(icon, null, tint = accent, modifier = Modifier.size(21.dp))
+            Column(Modifier.weight(1f)) {
+                Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+                    color = accent, maxLines = 1)
+                Text(detail, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+            }
         }
     }
 }

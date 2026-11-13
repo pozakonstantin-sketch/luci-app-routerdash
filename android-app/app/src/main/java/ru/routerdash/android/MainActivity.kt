@@ -420,6 +420,16 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
         }
     }
 
+    LaunchedEffect(sshConnected) {
+        while (sshConnected) {
+            val chunk = withContext(Dispatchers.IO) {
+                runCatching { sshSession?.readAvailable().orEmpty() }.getOrDefault("")
+            }
+            if (chunk.isNotEmpty()) sshOutput = (sshOutput + chunk).takeLast(24000)
+            delay(250)
+        }
+    }
+
     LaunchedEffect(connected, selected, refreshIntervalSeconds) {
         while (connected) {
             refresh(selected)
@@ -506,6 +516,8 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 Screen.PACKAGES to Icons.Outlined.Inventory2,
                                 Screen.DOWNLOADS to Icons.Outlined.Download,
                                 Screen.SERVICES to Icons.Outlined.MiscellaneousServices,
+                                Screen.VPN to Icons.Outlined.VpnKey,
+                                Screen.SSH to Icons.Outlined.Terminal,
                                 Screen.LOGS to Icons.Outlined.Article,
                                 Screen.SETTINGS to Icons.Outlined.Tune
                             )
@@ -537,6 +549,30 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.PACKAGES -> PackagesScreen(snapshot.packages) { refresh(Screen.PACKAGES) }
                         Screen.DOWNLOADS -> DownloadsScreen(snapshot.downloads, api) { refresh(Screen.DOWNLOADS) }
                         Screen.SERVICES -> ServicesScreen(snapshot.services, snapshot.processes, api) { refresh(Screen.SERVICES) }
+                        Screen.VPN -> VpnScreen(snapshot.vpnStatus) { refresh(Screen.VPN) }
+                        Screen.SSH -> SshScreen(
+                            host = runCatching { URI(url).host ?: "192.168.1.1" }.getOrDefault("192.168.1.1"),
+                            defaultUser = username, connected = sshConnected, connecting = sshConnecting, output = sshOutput,
+                            onConnect = { host, port, user, pass ->
+                                scope.launch {
+                                    sshConnecting = true
+                                    try {
+                                        val terminal = withContext(Dispatchers.IO) { SshTerminal().also { it.connect(host, port, user, pass) } }
+                                        sshSession = terminal; sshConnected = true
+                                        sshOutput += "\n[SSH] Соединение установлено: $user@$host:$port\n"
+                                    } catch (e: Exception) { sshOutput += "\n[SSH ERROR] ${e.message}\n" }
+                                    finally { sshConnecting = false }
+                                }
+                            },
+                            onSend = { command -> scope.launch {
+                                try { withContext(Dispatchers.IO) { sshSession?.send(command) }; sshOutput += "\n$ $command\n" }
+                                catch (e: Exception) { sshOutput += "\n[SSH ERROR] ${e.message}\n" }
+                            } },
+                            onDisconnect = { scope.launch {
+                                withContext(Dispatchers.IO) { sshSession?.close() }
+                                sshSession = null; sshConnected = false; sshOutput += "\n[SSH] Сессия закрыта\n"
+                            } }
+                        )
                         Screen.LOGS -> LogsScreen(snapshot.logs, snapshot.logsError)
                         Screen.SETTINGS -> SettingsScreen(
                             refreshIntervalSeconds = refreshIntervalSeconds,
@@ -566,6 +602,8 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             Screen.PACKAGES to Icons.Outlined.Inventory2,
                             Screen.DOWNLOADS to Icons.Outlined.Download,
                             Screen.SERVICES to Icons.Outlined.MiscellaneousServices,
+                            Screen.VPN to Icons.Outlined.VpnKey,
+                            Screen.SSH to Icons.Outlined.Terminal,
                             Screen.LOGS to Icons.Outlined.Article,
                             Screen.SETTINGS to Icons.Outlined.Tune
                         )

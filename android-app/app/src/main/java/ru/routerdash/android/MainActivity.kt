@@ -2143,7 +2143,7 @@ internal class SshTerminal(private val context: android.content.Context) {
     internal fun verifyMountedStorage(path: String) {
         val active = session ?: throw IllegalStateException("SSH-сессия не открыта.")
         val quoted = path.replace("'", "'\\''")
-        val command = "p='$quoted'; awk -v p=\\"$p\\" '$2 != \\"/\\" && $2 != \\"/rom\\" && $2 != \\"/overlay\\" && $2 != \\"/tmp\\" && (p == $2 || index(p, $2 \\"/\\") == 1) { if (length($2) > best) { best=length($2); dev=$1; mount=$2 } } END { if (best == 0) exit 2; print dev \\" \\" mount }' /proc/mounts"
+        val command = "p='$quoted'; awk -v p=\"$p\" '$2 != \"/\" && $2 != \"/rom\" && $2 != \"/overlay\" && $2 != \"/tmp\" && (p == $2 || index(p, $2 \"/\") == 1) { if (length($2) > best) { best=length($2); dev=$1; mount=$2 } } END { if (best == 0) exit 2; print dev \" \" mount }' /proc/mounts"
         val channel = active.openChannel("exec") as ChannelExec
         channel.setCommand(command)
         val input = channel.inputStream

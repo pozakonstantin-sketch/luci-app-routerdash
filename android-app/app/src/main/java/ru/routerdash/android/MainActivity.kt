@@ -50,7 +50,10 @@ private data class Snapshot(
     val services: JSONObject? = null, val logs: JSONObject? = null,
     val cpuRaw: String? = null, val networkDevices: JSONObject? = null,
     val cpuPercent: Int? = null, val rxRate: Long? = null, val txRate: Long? = null,
-    val trafficHistory: List<TrafficPoint> = emptyList()
+    val trafficHistory: List<TrafficPoint> = emptyList(),
+    val cpuHistory: List<Int> = emptyList(),
+    val sessionRxBytes: Long = 0L,
+    val sessionTxBytes: Long = 0L
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,8 +130,16 @@ private fun RouterDashApp() {
                         val history = if (rx != null && tx != null)
                             (snapshot.trafficHistory + TrafficPoint(rx, tx)).takeLast(36)
                         else snapshot.trafficHistory
+                        val cpuHistory = if (cpu != null)
+                            (snapshot.cpuHistory + cpu).takeLast(48) else snapshot.cpuHistory
+                        val rxDelta = if (counters != null && oldCounters != null && counters[0] >= oldCounters[0])
+                            counters[0] - oldCounters[0] else 0L
+                        val txDelta = if (counters != null && oldCounters != null && counters[1] >= oldCounters[1])
+                            counters[1] - oldCounters[1] else 0L
                         snapshot = snapshot.copy(cpuPercent = cpu ?: snapshot.cpuPercent,
-                            rxRate = rx, txRate = tx, trafficHistory = history)
+                            rxRate = rx, txRate = tx, trafficHistory = history, cpuHistory = cpuHistory,
+                            sessionRxBytes = snapshot.sessionRxBytes + rxDelta,
+                            sessionTxBytes = snapshot.sessionTxBytes + txDelta)
                     }
                 }
             } catch (e: Exception) {
@@ -271,60 +282,192 @@ private fun LoginScreen(
 
 @Composable
 private fun OverviewScreen(s: Snapshot) {
-    val board = s.board; val info = s.info
+    val board = s.board
+    val info = s.info
     val mem = info?.optJSONObject("memory")
     val total = mem?.optLong("total") ?: 0L
     val available = mem?.optLong("available") ?: 0L
     val used = (total - available).coerceAtLeast(0L)
     val ramPercent = if (total > 0) (used.toFloat() / total).coerceIn(0f, 1f) else 0f
     val load = info?.optJSONArray("load")?.optLong(0)?.let { String.format("%.2f", it / 1000.0) } ?: "—"
-    LazyColumn(contentPadding = PaddingValues(vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    val uptime = info?.optLong("uptime")?.let { duration(it) } ?: "—"
+    val model = board?.optString("model", "OpenWrt") ?: "OpenWrt"
+    val hostname = board?.optString("hostname", "RouterDash") ?: "RouterDash"
+
+    LazyColumn(contentPadding = PaddingValues(top = 10.dp, bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(board?.optString("hostname", "OpenWrt") ?: "OpenWrt",
-                    style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(board?.optString("model", "Маршрутизатор") ?: "Маршрутизатор",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(52.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Router, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(27.dp))
+                    }
+                }
+                Spacer(Modifier.width(13.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Панель управления", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(hostname, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(model, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.Outlined.NotificationsNone, contentDescription = "Уведомления",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(25.dp))
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                GaugeCard("CPU", s.cpuPercent?.let { "$it%" } ?: "—",
-                    s.cpuPercent?.div(100f) ?: 0f, "Загрузка процессора", Modifier.weight(1f), MaterialTheme.colorScheme.secondary)
-                GaugeCard("RAM", if (total > 0) "${(ramPercent * 100).toInt()}%" else "—",
-                    if (total > 0) ramPercent else 0f, "Используется", Modifier.weight(1f), MaterialTheme.colorScheme.primary)
+            InfoCard("CPU Usage") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(s.cpuPercent?.let { "$it%" } ?: "Сбор данных…",
+                        style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Загрузка процессора", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                CpuHistoryChart(s.cpuHistory)
+                Text("Общая загрузка CPU · обновление каждые 5 секунд",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall)
             }
         }
+        item { NetworkInformationCard(s) }
         item {
-            InfoCard("Нагрузка и время работы") {
-                InfoLine("Load average · 1 мин", load)
-                InfoLine("Аптайм", info?.optLong("uptime")?.let { duration(it) } ?: "—")
-            }
-        }
-        item { TrafficCard(s.trafficHistory, s.rxRate, s.txRate) }
-        item {
-            InfoCard("Память") {
-                InfoLine("Занято", if (total > 0) formatBytes(used) else "—")
-                InfoLine("Доступно", if (total > 0) formatBytes(available) else "—")
-                InfoLine("Всего", if (total > 0) formatBytes(total) else "—")
+            InfoCard("Internal Storage · RAM") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("Используется", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall)
+                        Text(if (total > 0) formatBytes(used) else "—",
+                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Всего", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall)
+                        Text(if (total > 0) formatBytes(total) else "—",
+                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    }
+                }
                 if (total > 0) {
-                    Spacer(Modifier.height(5.dp))
                     LinearProgressIndicator(progress = { ramPercent }, Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceVariant)
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant)
+                    Text("Доступно: ${formatBytes(available)} · ${(ramPercent * 100).toInt()}% занято",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
         item {
-            InfoCard("Система") {
-                InfoLine("Версия OpenWrt", board?.optJSONObject("release")?.optString("version", "—") ?: "—")
+            InfoCard("System Information") {
+                InfoLine("Load average · 1 мин", load)
+                InfoLine("Время работы", uptime)
+                InfoLine("OpenWrt", board?.optJSONObject("release")?.optString("version", "—") ?: "—")
                 InfoLine("Ядро", board?.optString("kernel", "—") ?: "—")
                 InfoLine("Архитектура", board?.optString("system", "—") ?: "—")
             }
         }
-        item {
-            Text("Показатели получены напрямую из OpenWrt через ubus.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun CpuHistoryChart(history: List<Int>) {
+    val accent = MaterialTheme.colorScheme.primary
+    val grid = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)
+    val label = MaterialTheme.colorScheme.onSurfaceVariant
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(178.dp)) {
+        val left = 34.dp.toPx()
+        val right = 4.dp.toPx()
+        val top = 8.dp.toPx()
+        val bottom = 20.dp.toPx()
+        val chartWidth = size.width - left - right
+        val chartHeight = size.height - top - bottom
+        listOf(0, 25, 50, 75, 100).forEach { tick ->
+            val y = top + chartHeight * (1f - tick / 100f)
+            drawLine(grid, androidx.compose.ui.geometry.Offset(left, y),
+                androidx.compose.ui.geometry.Offset(size.width - right, y), 1.dp.toPx())
+            drawContext.canvas.nativeCanvas.drawText(tick.toString(),
+                0f, y + 4.dp.toPx(), android.graphics.Paint().apply {
+                    color = android.graphics.Color.LTGRAY
+                    textSize = 10.dp.toPx()
+                })
         }
+        if (history.isEmpty()) return@Canvas
+        val path = androidx.compose.ui.graphics.Path()
+        val fill = androidx.compose.ui.graphics.Path()
+        history.forEachIndexed { index, value ->
+            val x = left + if (history.size == 1) chartWidth else chartWidth * index / (history.size - 1f)
+            val y = top + chartHeight * (1f - value.coerceIn(0, 100) / 100f)
+            if (index == 0) { path.moveTo(x, y); fill.moveTo(x, top + chartHeight); fill.lineTo(x, y) }
+            else { path.lineTo(x, y); fill.lineTo(x, y) }
+        }
+        val lastX = left + if (history.size == 1) chartWidth else chartWidth
+        fill.lineTo(lastX, top + chartHeight)
+        fill.close()
+        drawPath(fill, androidx.compose.ui.graphics.Brush.verticalGradient(
+            listOf(accent.copy(alpha = 0.42f), accent.copy(alpha = 0.02f)),
+            startY = top, endY = top + chartHeight))
+        drawPath(path, accent, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+    }
+}
+
+@Composable
+private fun NetworkInformationCard(s: Snapshot) {
+    val rx = s.sessionRxBytes
+    val tx = s.sessionTxBytes
+    val total = rx + tx
+    val rxColor = MaterialTheme.colorScheme.primary
+    val txColor = androidx.compose.ui.graphics.Color(0xFF31C879)
+    InfoCard("Network Information") {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(formatBytes(rx), style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold)
+                    Text("↓ Получено за сеанс", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(formatBytes(tx), style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold)
+                    Text("↑ Передано за сеанс", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Box(Modifier.size(142.dp), contentAlignment = Alignment.Center) {
+                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                    val stroke = 17.dp.toPx()
+                    drawArc(MaterialTheme.colorScheme.surfaceVariant, -90f, 360f, false,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                    if (total > 0L) {
+                        val rxSweep = 360f * rx.toFloat() / total.toFloat()
+                        drawArc(rxColor, -90f, rxSweep, false,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                        drawArc(txColor, -90f + rxSweep, 360f - rxSweep, false,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                    }
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(formatBytes(total), style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold)
+                    Text("Всего", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("↓ ${s.rxRate?.let { formatRate(it) } ?: "—"}",
+                color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelLarge)
+            Text("↑ ${s.txRate?.let { formatRate(it) } ?: "—"}",
+                color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+        }
+        Text("Счётчики с момента подключения приложения; не являются статистикой за месяц",
+            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
     }
 }
 

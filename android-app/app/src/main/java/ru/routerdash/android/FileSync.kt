@@ -108,8 +108,21 @@ internal object SftpFileSync {
                         ssh.downloadFile(remotePath, output); output.flush()
                     }
                     val old = parent.findFile(name)
-                    if (old != null && !old.delete()) throw IllegalStateException("Не удалось заменить $name")
-                    if (!temp.renameTo(name)) throw IllegalStateException("Файл загружен, но хранилище не поддерживает переименование.")
+                    if (old?.isDirectory == true) throw IllegalStateException("Вместо файла $name уже существует папка.")
+                    val backupName = ".$name.routerdash-backup-${java.util.UUID.randomUUID()}"
+                    var backup: DocumentFile? = null
+                    if (old != null) {
+                        if (!old.renameTo(backupName)) {
+                            throw IllegalStateException("Не удалось безопасно сохранить предыдущую версию $name.")
+                        }
+                        backup = parent.findFile(backupName)
+                            ?: throw IllegalStateException("Не удалось найти резервную копию $name.")
+                    }
+                    if (!temp.renameTo(name)) {
+                        backup?.renameTo(name)
+                        throw IllegalStateException("Не удалось установить новый файл $name. Предыдущая версия восстановлена, если хранилище поддерживает переименование.")
+                    }
+                    backup?.delete()
                 } catch (e: Exception) { temp.delete(); throw e }
             }
             else -> throw IllegalArgumentException("Не выбрано направление передачи.")

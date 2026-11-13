@@ -270,9 +270,17 @@ private fun RouterDashApp(onEnableBiometric: (() -> Unit) -> Unit) {
                             sessionTxBytes = snapshot.sessionTxBytes + txDelta)
                     }
                 }
+                if (screen == Screen.OVERVIEW) {
+                    saveRouterDashWidgetSnapshot(context, snapshot, url)
+                }
             } catch (e: Exception) {
                 error = e.message ?: "Ошибка получения данных"
                 if (error?.contains("401") == true || error?.contains("403") == true) connected = false
+                if (screen == Screen.OVERVIEW) {
+                    context.getSharedPreferences("routerdash_widget_cache", 0).edit()
+                        .putBoolean("online", false).putLong("updated_at", System.currentTimeMillis()).apply()
+                    RouterDashWidgetProvider.refreshAll(context)
+                }
             } finally { loading = false }
         }
     }
@@ -1465,4 +1473,27 @@ private fun duration(seconds: Long): String {
     val hours = (seconds % 86400) / 3600
     val minutes = (seconds % 3600) / 60
     return if (days > 0) days.toString() + "д " + hours + "ч" else hours.toString() + "ч " + minutes + "м"
+}
+
+
+private fun saveRouterDashWidgetSnapshot(context: android.content.Context, snapshot: Snapshot, routerUrl: String) {
+    val info = snapshot.info
+    val memory = info?.optJSONObject("memory")
+    val total = memory?.optLong("total") ?: 0L
+    val available = memory?.optLong("available") ?: 0L
+    val ramPercent = if (total > 0L) (((total - available).coerceAtLeast(0L) * 100L) / total).toInt() else -1
+    val board = snapshot.board
+    context.getSharedPreferences("routerdash_widget_cache", 0).edit()
+        .putBoolean("online", true)
+        .putString("router_url", routerUrl)
+        .putString("hostname", board?.optString("hostname").orEmpty().ifBlank { "OpenWrt" })
+        .putString("model", board?.optString("model").orEmpty().ifBlank { "Маршрутизатор" })
+        .putInt("cpu_percent", snapshot.cpuPercent ?: -1)
+        .putInt("ram_percent", ramPercent)
+        .putString("rx_rate", snapshot.rxRate?.let { formatRate(it) } ?: "—")
+        .putString("tx_rate", snapshot.txRate?.let { formatRate(it) } ?: "—")
+        .putString("uptime", info?.optLong("uptime")?.let { duration(it) } ?: "—")
+        .putLong("updated_at", System.currentTimeMillis())
+        .apply()
+    RouterDashWidgetProvider.refreshAll(context)
 }

@@ -121,10 +121,14 @@ private fun RouterDashApp() {
     }
 
     MaterialTheme(colorScheme = darkColorScheme(
-        primary = androidx.compose.ui.graphics.Color(0xFFFF9852),
-        secondary = androidx.compose.ui.graphics.Color(0xFF79B8FF),
-        background = androidx.compose.ui.graphics.Color(0xFF0B1017),
-        surface = androidx.compose.ui.graphics.Color(0xFF151E29)
+        primary = androidx.compose.ui.graphics.Color(0xFFFF9A52),
+        secondary = androidx.compose.ui.graphics.Color(0xFF69C7F0),
+        background = androidx.compose.ui.graphics.Color(0xFF171B22),
+        surface = androidx.compose.ui.graphics.Color(0xFF222832),
+        surfaceVariant = androidx.compose.ui.graphics.Color(0xFF2B323D),
+        onBackground = androidx.compose.ui.graphics.Color(0xFFF4F6F8),
+        onSurface = androidx.compose.ui.graphics.Color(0xFFF4F6F8),
+        onSurfaceVariant = androidx.compose.ui.graphics.Color(0xFF9AA5B1)
     )) {
         if (!connected) {
             LoginScreen(url, { url = it }, username, { username = it }, password, { password = it },
@@ -217,37 +221,58 @@ private fun LoginScreen(
 @Composable
 private fun OverviewScreen(s: Snapshot) {
     val board = s.board; val info = s.info
-    LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val mem = info?.optJSONObject("memory")
+    val total = mem?.optLong("total") ?: 0L
+    val available = mem?.optLong("available") ?: 0L
+    val used = (total - available).coerceAtLeast(0L)
+    val ramPercent = if (total > 0) (used.toFloat() / total).coerceIn(0f, 1f) else 0f
+    val load = info?.optJSONArray("load")?.optLong(0)?.let { String.format("%.2f", it / 1000.0) } ?: "—"
+    LazyColumn(contentPadding = PaddingValues(vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Text(board?.optString("hostname", "OpenWrt") ?: "OpenWrt",
-                style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(board?.optString("model", "Роутер") ?: "Ожидание данных",
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                val load = info?.optJSONArray("load")?.optLong(0)?.toString() ?: "—"
-                MetricCard("CPU load", load, Modifier.weight(1f))
-                MetricCard("Аптайм", info?.optLong("uptime")?.let { duration(it) } ?: "—", Modifier.weight(1f))
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(board?.optString("hostname", "OpenWrt") ?: "OpenWrt",
+                    style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(board?.optString("model", "Маршрутизатор") ?: "Маршрутизатор",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         item {
-            val mem = info?.optJSONObject("memory")
-            val total = mem?.optLong("total") ?: 0L
-            val available = mem?.optLong("available") ?: 0L
-            val value = if (total > 0) (100L * (total - available) / total).toInt().toString() + "% · " +
-                formatBytes(total - available) + " / " + formatBytes(total) else "—"
-            MetricCard("Оперативная память", value)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                GaugeCard("RAM", if (total > 0) "${(ramPercent * 100).toInt()}%" else "—",
+                    if (total > 0) ramPercent else 0f, "Используется", Modifier.weight(1f), MaterialTheme.colorScheme.primary)
+                InfoCard("Нагрузка") {
+                    Text(load, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary)
+                    Text("Load average · 1 мин", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(10.dp))
+                    Text("Аптайм", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(info?.optLong("uptime")?.let { duration(it) } ?: "—",
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        item {
+            InfoCard("Память") {
+                InfoLine("Занято", if (total > 0) formatBytes(used) else "—")
+                InfoLine("Доступно", if (total > 0) formatBytes(available) else "—")
+                InfoLine("Всего", if (total > 0) formatBytes(total) else "—")
+                if (total > 0) {
+                    Spacer(Modifier.height(5.dp))
+                    LinearProgressIndicator(progress = { ramPercent }, Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceVariant)
+                }
+            }
         }
         item {
             InfoCard("Система") {
-                InfoLine("Версия", board?.optJSONObject("release")?.optString("version", "—") ?: "—")
+                InfoLine("Версия OpenWrt", board?.optJSONObject("release")?.optString("version", "—") ?: "—")
                 InfoLine("Ядро", board?.optString("kernel", "—") ?: "—")
                 InfoLine("Архитектура", board?.optString("system", "—") ?: "—")
             }
         }
         item {
-            Text("Данные поступают напрямую из LuCI/ubus. Обновляй экран кнопкой ↻.",
+            Text("Показатели получены напрямую из OpenWrt через ubus.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -274,14 +299,41 @@ private fun NetworkScreen(result: JSONObject?) {
 @Composable
 private fun DevicesScreen(result: JSONObject?) {
     val list = result?.optJSONArray("dhcp_leases")
-    LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { Text("DHCP-клиенты", style = MaterialTheme.typography.headlineSmall) }
+    LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Устройства", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Surface(color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f), shape = MaterialTheme.shapes.small) {
+                    Text("${list?.length() ?: 0} DHCP", Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
         if (list == null || list.length() == 0) item { EmptyState("Нет активных DHCP-аренд") }
         else items((0 until list.length()).map { list.optJSONObject(it) ?: JSONObject() }) { lease ->
-            InfoCard(lease.optString("hostname", "Без имени")) {
-                InfoLine("IP", lease.optString("ipaddr", "—"))
-                InfoLine("MAC", lease.optString("macaddr", "—"))
-                InfoLine("Осталось", lease.optString("expires", "—"))
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.13f),
+                        shape = MaterialTheme.shapes.medium, modifier = Modifier.size(42.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Outlined.Devices, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(lease.optString("hostname", "Без имени"), fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        Text(lease.optString("ipaddr", "IP неизвестен"), color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.bodySmall)
+                        Text(lease.optString("macaddr", "MAC неизвестен"), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("DHCP", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                        Text(lease.optString("expires", "—"), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
         }
     }
@@ -317,6 +369,29 @@ private fun LogsScreen(result: JSONObject?) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun GaugeCard(title: String, value: String, progress: Float, caption: String,
+                      modifier: Modifier = Modifier, accent: androidx.compose.ui.graphics.Color) {
+    ElevatedCard(modifier, colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(10.dp))
+            Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
+                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                    val stroke = 10.dp.toPx()
+                    drawArc(color = MaterialTheme.colorScheme.surfaceVariant, startAngle = -90f, sweepAngle = 360f,
+                        useCenter = false, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                    drawArc(color = accent, startAngle = -90f, sweepAngle = 360f * progress.coerceIn(0f, 1f),
+                        useCenter = false, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                }
+                Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(caption, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

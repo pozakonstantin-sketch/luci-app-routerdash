@@ -356,6 +356,9 @@ internal fun SyncScreen(sshConnected: Boolean, ssh: SshTerminal?, sshHostDefault
                                 autoError = "Проверь SSH-адрес, пользователя и порт."
                             else if (autoPassword.isBlank() && !autoPasswordSaved)
                                 autoError = "Для фонового подключения введи SSH-пароль."
+                            else if (context.getSharedPreferences("routerdash_ssh_hosts", 0)
+                                    .getString("${autoHost.trim()}:$port", null).isNullOrBlank())
+                                autoError = "Сначала подключись к этому роутеру через SSH-терминал и подтверди его host key."
                             else try {
                                 securePrefs.edit().putString("auto_sync_ssh_host", autoHost.trim())
                                     .putString("auto_sync_ssh_user", autoUser.trim())

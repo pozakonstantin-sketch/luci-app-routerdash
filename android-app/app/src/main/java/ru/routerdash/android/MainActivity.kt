@@ -183,7 +183,8 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.OVERVIEW -> snapshot.copy(
                             board = client.call("system", "board"),
                             info = client.call("system", "info"),
-                            cpuRaw = readUbusFile(client, "/proc/stat"),
+                            cpuRaw = runCatching { readUbusFile(client, "/proc/stat") }.getOrNull()?.takeIf { it.contains("cpu ") }
+                                ?: runCatching { client.execReadOnly("cat", listOf("/proc/stat")) }.getOrNull(),
                             networkDevices = client.call("luci-rpc", "getNetworkDevices")
                         )
                         Screen.NETWORK -> {
@@ -241,7 +242,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 parseLogReadOutput(client.execReadOnly("logread", listOf("-l", "300")))
                             }
                             snapshot.copy(logs = logs)
-                        })
+                        }
                         Screen.SETTINGS -> snapshot
                     }
                 }

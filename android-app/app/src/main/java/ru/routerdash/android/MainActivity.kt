@@ -124,13 +124,14 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Screen(val title: String) {
-    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), SERVICES("Службы"), LOGS("Журнал")
+    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), SERVICES("Службы"), LOGS("Журнал")
 }
 private data class TrafficPoint(val rx: Long, val tx: Long)
 private data class Snapshot(
     val board: JSONObject? = null, val info: JSONObject? = null,
     val network: JSONObject? = null, val wireless: JSONObject? = null, val devices: JSONObject? = null,
     val services: JSONObject? = null, val logs: JSONObject? = null,
+    val storage: JSONArray? = null,
     val cpuRaw: String? = null, val networkDevices: JSONObject? = null,
     val cpuPercent: Int? = null, val rxRate: Long? = null, val txRate: Long? = null,
     val trafficHistory: List<TrafficPoint> = emptyList(),
@@ -213,6 +214,7 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                                 .put("arp_entries", arp)
                             snapshot.copy(devices = combined)
                         }
+                        Screen.STORAGE -> snapshot.copy(storage = client.callArray("luci", "getMountPoints"))
                         Screen.SERVICES -> snapshot.copy(services = client.call("rc", "list"))
                         Screen.LOGS -> snapshot.copy(logs = client.call("log", "read", JSONObject().put("lines", 300)))
                     }
@@ -341,6 +343,7 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                             Screen.OVERVIEW to Icons.Outlined.Dashboard,
                             Screen.NETWORK to Icons.Outlined.Lan,
                             Screen.DEVICES to Icons.Outlined.Devices,
+                            Screen.STORAGE to Icons.Outlined.Storage,
                             Screen.SERVICES to Icons.Outlined.Settings,
                             Screen.LOGS to Icons.Outlined.Article
                         )
@@ -365,6 +368,7 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                         Screen.OVERVIEW -> OverviewScreen(snapshot)
                         Screen.NETWORK -> NetworkScreen(snapshot.network, snapshot.wireless)
                         Screen.DEVICES -> DevicesScreen(snapshot.devices)
+                        Screen.STORAGE -> StorageScreen(snapshot.storage) { refresh(Screen.STORAGE) }
                         Screen.SERVICES -> ServicesScreen(snapshot.services, api) { refresh(Screen.SERVICES) }
                         Screen.LOGS -> LogsScreen(snapshot.logs)
                     }
@@ -713,6 +717,61 @@ private fun DevicesScreen(result: JSONObject?) {
     }
 }
 @Composable
+private fun StorageScreen(mounts: JSONArray?, onRefresh: () -> Unit) {
+    data class Mount(val path: String, val device: String, val size: Long, val available: Long) {
+        val used: Long get() = (size - available).coerceAtLeast(0L)
+        val percent: Int get() = if (size > 0L) ((used * 100L) / size).toInt().coerceIn(0, 100) else 0
+    }
+    val entries = remember(mounts) {
+        if (mounts == null) emptyList() else (0 until mounts.length()).mapNotNull { index ->
+            val item = mounts.optJSONObject(index) ?: return@mapNotNull null
+            val size = item.optLong("size")
+            val available = item.optLong("avail")
+            if (size <= 0L) null else Mount(
+                item.optString("mount", "—"),
+                item.optString("device", "—"),
+                size,
+                available.coerceIn(0L, size)
+            )
+        }.sortedBy { it.path }
+    }
+    LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Хранилища роутера", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, contentDescription = "Обновить") }
+            }
+            Text("Данные получены через luci.getMountPoints. Размеры отображаются для смонтированных файловых систем.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (mounts == null) item { EmptyState("Нет данных о файловых системах. Проверь доступ к luci.getMountPoints.") }
+        else if (entries.isEmpty()) item { EmptyState("Нет смонтированных файловых систем с доступной статистикой.") }
+        else items(entries, key = { it.path + it.device }) { mount ->
+            val barColor = when {
+                mount.percent >= 90 -> MaterialTheme.colorScheme.error
+                mount.percent >= 75 -> MaterialTheme.colorScheme.tertiary
+                else -> MaterialTheme.colorScheme.primary
+            }
+            InfoCard(mount.path) {
+                InfoLine("Устройство", mount.device)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Занято", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${formatBytes(mount.used)} · ${mount.percent}%", fontWeight = FontWeight.SemiBold)
+                }
+                LinearProgressIndicator(
+                    progress = { mount.percent / 100f },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = barColor
+                )
+                InfoLine("Свободно", formatBytes(mount.available))
+                InfoLine("Всего", formatBytes(mount.size))
+            }
+        }
+    }
+}
+
+@Composable
 private fun ServicesScreen(result: JSONObject?, api: RouterApi?, onRefresh: () -> Unit) {
     val names = result?.keys()?.asSequence()?.toList()?.sorted() ?: emptyList()
     val scope = rememberCoroutineScope()
@@ -978,6 +1037,21 @@ private class RouterApi(val baseUrl: String) {
         if (session.isBlank() || session == "null") {
             throw IllegalStateException("OpenWrt не вернул токен сессии ubus")
         }
+    }
+
+    fun callArray(objectName: String, method: String, args: JSONObject = JSONObject()): JSONArray {
+        check(session.isNotBlank()) { "Нет сессии LuCI. Подключись заново." }
+        val params = JSONArray().put(session).put(objectName).put(method).put(args)
+        val body = JSONObject().put("jsonrpc", "2.0").put("id", System.currentTimeMillis())
+            .put("method", "call").put("params", params).toString()
+        val root = JSONObject(post("/ubus", body))
+        if (root.has("error")) throw IllegalStateException(root.optJSONObject("error")?.optString("message") ?: "Ошибка ubus")
+        val result = root.optJSONArray("result")
+            ?: throw IllegalStateException("Роутер вернул неожиданный ответ для $objectName.$method")
+        val status = result.optInt(0, -1)
+        if (status != 0) throw IllegalStateException("Ошибка ubus $objectName.$method: код $status")
+        return result.optJSONArray(1)
+            ?: throw IllegalStateException("$objectName.$method вернул не список")
     }
 
     fun call(objectName: String, method: String, args: JSONObject = JSONObject()): JSONObject {

@@ -880,8 +880,8 @@ private fun RouterStatusHero(
             color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f),
             modifier = Modifier.size(46.dp)) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.Router, contentDescription = null,
-                    tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(26.dp))
+                Icon(painterResource(R.drawable.ic_routerdash_foreground), contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(38.dp))
             }
         }
         Spacer(Modifier.width(12.dp))
@@ -1864,10 +1864,10 @@ private fun GaugeCard(title: String, value: String, progress: Float, caption: St
     )
     ElevatedCard(modifier, shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
+        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 7.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Box(Modifier.size(82.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(68.dp), contentAlignment = Alignment.Center) {
                 androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
                     val stroke = 9.dp.toPx()
                     drawArc(color = trackColor, startAngle = -90f, sweepAngle = 360f, useCenter = false,

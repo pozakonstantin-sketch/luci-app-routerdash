@@ -363,16 +363,34 @@ private class RouterApi(val baseUrl: String) {
     private val mediaType = "application/json; charset=utf-8".toMediaType()
 
     fun login(username: String, password: String) {
-        val params = JSONArray().put(username).put(password)
-        val body = JSONObject().put("id", 1).put("method", "login").put("params", params).toString()
-        val root = JSONObject(post("/cgi-bin/luci/rpc/auth", body))
-        val result = root.opt("result")
-        session = when (result) {
-            is String -> result
-            is JSONObject -> result.optString("ubus_rpc_session", result.optString("sid"))
-            else -> ""
+        // OpenWrt's standard JSON-RPC endpoint accepts session.login on /ubus.
+        // The all-zero session ID is used only to start an unauthenticated session.
+        val params = JSONArray()
+            .put("00000000000000000000000000000000")
+            .put("session")
+            .put("login")
+            .put(JSONObject().put("username", username).put("password", password))
+        val body = JSONObject()
+            .put("jsonrpc", "2.0")
+            .put("id", 1)
+            .put("method", "call")
+            .put("params", params)
+            .toString()
+        val root = JSONObject(post("/ubus", body))
+        if (root.has("error")) {
+            val message = root.optJSONObject("error")?.optString("message")
+            throw IllegalStateException(message?.takeIf { it.isNotBlank() } ?: "Ошибка авторизации ubus")
         }
-        if (session.isBlank() || session == "null") throw IllegalStateException("LuCI не принял логин или пароль")
+        val result = root.optJSONArray("result")
+            ?: throw IllegalStateException("Роутер вернул неожиданный ответ на авторизацию")
+        val status = result.optInt(0, -1)
+        if (status != 0) {
+            throw IllegalStateException("OpenWrt отклонил вход (код ubus: $status). Проверь логин и пароль.")
+        }
+        session = result.optJSONObject(1)?.optString("ubus_rpc_session").orEmpty()
+        if (session.isBlank() || session == "null") {
+            throw IllegalStateException("OpenWrt не вернул токен сессии ubus")
+        }
     }
 
     fun call(objectName: String, method: String, args: JSONObject = JSONObject()): JSONObject {
@@ -380,7 +398,7 @@ private class RouterApi(val baseUrl: String) {
         val params = JSONArray().put(session).put(objectName).put(method).put(args)
         val body = JSONObject().put("jsonrpc", "2.0").put("id", System.currentTimeMillis())
             .put("method", "call").put("params", params).toString()
-        val root = JSONObject(post("/cgi-bin/luci/admin/ubus", body))
+        val root = JSONObject(post("/ubus", body))
         if (root.has("error")) throw IllegalStateException(root.optJSONObject("error")?.optString("message") ?: "Ошибка ubus")
         val result = root.opt("result")
         if (result is JSONArray) {
@@ -396,8 +414,11 @@ private class RouterApi(val baseUrl: String) {
             .post(body.toRequestBody(mediaType)).header("X-Requested-With", "XMLHttpRequest").build()
         http.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful)
-                throw IllegalStateException("HTTP " + response.code + ": проверь адрес и доступ к LuCI")
+            if (!response.isSuccessful) {
+                val detail = text.replace(Regex("\\s+"), " ").take(180)
+                val suffix = if (detail.isBlank()) "" else " — $detail"
+                throw IllegalStateException("HTTP " + response.code + " на " + path + suffix)
+            }
             return text
         }
     }

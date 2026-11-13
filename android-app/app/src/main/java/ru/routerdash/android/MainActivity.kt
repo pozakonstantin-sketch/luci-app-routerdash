@@ -319,16 +319,22 @@ private fun OverviewScreen(s: Snapshot) {
         }
         item {
             InfoCard("CPU Usage") {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(s.cpuPercent?.let { "$it%" } ?: "Сбор данных…",
-                        style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Загрузка процессора", color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall)
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        s.cpuPercent?.let { "$it%" } ?: "Ожидание замера",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
+                    )
+                    Text(
+                        "Загрузка процессора",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
                 CpuHistoryChart(s.cpuHistory)
-                Text("Общая загрузка CPU · обновление каждые 5 секунд",
+                Text(if (s.cpuHistory.isEmpty()) "Ожидаем данные процессора · опрос каждые 5 секунд" else "Общая загрузка CPU · обновление каждые 5 секунд",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall)
             }

@@ -138,6 +138,7 @@ private data class Snapshot(
     val services: JSONObject? = null, val logs: JSONObject? = null,
     val storage: JSONArray? = null, val packages: JSONObject? = null, val downloads: JSONObject? = null,
     val cpuRaw: String? = null, val networkDevices: JSONObject? = null,
+    val processes: String? = null,
     val cpuPercent: Int? = null, val rxRate: Long? = null, val txRate: Long? = null,
     val trafficHistory: List<TrafficPoint> = emptyList(),
     val cpuHistory: List<Int> = emptyList(),
@@ -221,11 +222,25 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 .put("arp_entries", arp)
                             snapshot.copy(devices = combined)
                         }
-                        Screen.STORAGE -> snapshot.copy(storage = client.callArray("luci", "getMountPoints"))
+                        Screen.STORAGE -> {
+                            val mounts = runCatching { client.callArray("luci", "getMountPoints") }.getOrElse {
+                                parseDfOutput(client.execReadOnly("df", listOf("-kP")))
+                            }
+                            snapshot.copy(storage = mounts)
+                        }
                         Screen.PACKAGES -> snapshot.copy(packages = client.call("rpc-sys", "packagelist"))
                         Screen.DOWNLOADS -> snapshot.copy(downloads = client.aria2Overview())
-                        Screen.SERVICES -> snapshot.copy(services = client.call("rc", "list"))
-                        Screen.LOGS -> snapshot.copy(logs = client.call("log", "read", JSONObject().put("lines", 300)))
+                        Screen.SERVICES -> snapshot.copy(
+                            services = client.call("rc", "list"),
+                            processes = runCatching { client.execReadOnly("top", listOf("-bn1")) }
+                                .getOrElse { client.execReadOnly("ps", listOf("w")) }
+                        )
+                        Screen.LOGS -> {
+                            val logs = runCatching { client.call("log", "read", JSONObject().put("lines", 300)) }.getOrElse {
+                                parseLogReadOutput(client.execReadOnly("logread", listOf("-l", "300")))
+                            }
+                            snapshot.copy(logs = logs)
+                        })
                         Screen.SETTINGS -> snapshot
                     }
                 }
@@ -410,7 +425,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.STORAGE -> StorageScreen(snapshot.storage) { refresh(Screen.STORAGE) }
                         Screen.PACKAGES -> PackagesScreen(snapshot.packages) { refresh(Screen.PACKAGES) }
                         Screen.DOWNLOADS -> DownloadsScreen(snapshot.downloads, api) { refresh(Screen.DOWNLOADS) }
-                        Screen.SERVICES -> ServicesScreen(snapshot.services, api) { refresh(Screen.SERVICES) }
+                        Screen.SERVICES -> ServicesScreen(snapshot.services, snapshot.processes, api) { refresh(Screen.SERVICES) }
                         Screen.LOGS -> LogsScreen(snapshot.logs)
                         Screen.SETTINGS -> SettingsScreen(
                             refreshIntervalSeconds = refreshIntervalSeconds,

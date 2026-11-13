@@ -566,6 +566,27 @@ private fun NetworkScreen(result: JSONObject?, wireless: JSONObject?) {
     val radios = wireless?.keys()?.asSequence()?.mapNotNull { key -> wireless.optJSONObject(key)?.let { key to it } }?.toList() ?: emptyList()
     LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Сетевые интерфейсы", style = MaterialTheme.typography.headlineSmall) }
+        if (radios.isNotEmpty()) {
+            item { Text("Wi-Fi", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+            items(radios) { (radioName, radio) ->
+                InfoCard(radioName) {
+                    InfoLine("Состояние", if (radio.optBoolean("up")) "Включён" else "Выключен")
+                    InfoLine("Канал", radio.optJSONObject("config")?.optString("channel", "—") ?: "—")
+                    val interfaces = radio.optJSONArray("interfaces")
+                    if (interfaces != null) {
+                        for (idx in 0 until interfaces.length()) {
+                            val iface = interfaces.optJSONObject(idx) ?: JSONObject()
+                            val cfg = iface.optJSONObject("config") ?: JSONObject()
+                            val iw = iface.optJSONObject("iwinfo") ?: JSONObject()
+                            InfoLine("SSID", cfg.optString("ssid", "—"))
+                            InfoLine("Интерфейс", iface.optString("ifname", "—"))
+                            InfoLine("Сигнал", if (iw.has("signal")) "${iw.optInt("signal")} dBm" else "—")
+                            InfoLine("Шифрование", cfg.optString("encryption", "—"))
+                        }
+                    }
+                }
+            }
+        }
         if (list == null || list.length() == 0) item { EmptyState("Нет данных о сетевых интерфейсах") }
         else items((0 until list.length()).map { list.optJSONObject(it) ?: JSONObject() }) { entry ->
             InfoCard(entry.optString("interface", "Интерфейс")) {
@@ -643,7 +664,8 @@ private fun LogsScreen(result: JSONObject?) {
     val list = result?.optJSONArray("log")
     LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { Text("Системный журнал", style = MaterialTheme.typography.headlineSmall) }
-        if (list == null || list.length() == 0) item { EmptyState("Журнал пуст или недоступен") }
+        if (result == null) item { EmptyState("Не удалось получить журнал. Проверь доступ к ubus log.read.") }
+        else if (list == null || list.length() == 0) item { EmptyState("Журнал пуст или недоступен") }
         else items((0 until list.length()).map { list.optJSONObject(it) ?: JSONObject() }.reversed()) { line ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {

@@ -140,7 +140,7 @@ class MainActivity : FragmentActivity() {
 }
 
 private enum class Screen(val title: String) {
-    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), PACKAGES("Пакеты"), DOWNLOADS("Загрузки"), SERVICES("Службы"), VPN("VPN"), SSH("SSH-терминал"), LOGS("Журнал"), SETTINGS("Настройки")
+    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), PACKAGES("Пакеты"), DOWNLOADS("Загрузки"), SERVICES("Службы"), VPN("VPN"), FIREWALL("Правила"), SSH("SSH-терминал"), LOGS("Журнал"), SETTINGS("Настройки")
 }
 private data class TrafficPoint(val rx: Long, val tx: Long)
 private data class Snapshot(
@@ -149,7 +149,7 @@ private data class Snapshot(
     val services: JSONObject? = null, val logs: JSONObject? = null,
     val storage: JSONArray? = null, val storageError: String? = null,
     val packages: JSONObject? = null, val downloads: JSONObject? = null,
-    val vpnStatus: String? = null,
+    val vpnStatus: String? = null, val diskDetails: String? = null, val firewallRules: String? = null,
     val cpuRaw: String? = null, val networkDevices: JSONObject? = null,
     val processes: String? = null, val logsError: String? = null,
     val cpuPercent: Int? = null, val rxRate: Long? = null, val txRate: Long? = null,
@@ -290,10 +290,12 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             val diagnostic = if (mounts.length() == 0)
                                 failures.joinToString("\n").ifBlank { "Роутер не вернул список файловых систем." }
                             else null
-                            snapshot.copy(storage = mounts, storageError = diagnostic)
+                            val diskDetails = runCatching { client.execReadOnly("sh", listOf("-c", "echo BLOCK_DEVICES; for d in /sys/block/*; do [ -e \"$d/size\" ] && echo \"$(basename $d): $(cat $d/size) sectors\"; done; echo DISK_STATS; cat /proc/diskstats; echo MOUNTS; grep -E \"/mnt|/overlay|/rom\" /proc/mounts; echo DF; df -h")) }.getOrDefault("Диагностика дисков недоступна")
+                            snapshot.copy(storage = mounts, storageError = diagnostic, diskDetails = diskDetails)
                         }
                         Screen.PACKAGES -> snapshot.copy(packages = client.call("rpc-sys", "packagelist"))
                         Screen.DOWNLOADS -> snapshot.copy(downloads = client.aria2Overview())
+                        Screen.FIREWALL -> snapshot.copy(firewallRules = runCatching { client.execReadOnly("sh", listOf("-c", "echo UCI_FIREWALL; uci show firewall 2>/dev/null; echo NFT_RULESET; nft list ruleset 2>/dev/null | head -n 260")) }.getOrDefault("Не удалось прочитать правила firewall")))
                         Screen.VPN -> snapshot.copy(vpnStatus = client.execReadOnly("sh", listOf("-c",
                             "echo VPN_PROCESSES; ps | grep -E \"tailscale|sing-box|xray|openvpn|wireguard\" | grep -v grep; " +
                             "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 30; fi; " +
@@ -517,6 +519,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 Screen.DOWNLOADS to Icons.Outlined.Download,
                                 Screen.SERVICES to Icons.Outlined.MiscellaneousServices,
                                 Screen.VPN to Icons.Outlined.VpnKey,
+                                Screen.FIREWALL to Icons.Outlined.Security,
                                 Screen.SSH to Icons.Outlined.Terminal,
                                 Screen.LOGS to Icons.Outlined.Article,
                                 Screen.SETTINGS to Icons.Outlined.Tune
@@ -545,11 +548,12 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.OVERVIEW -> OverviewScreen(snapshot)
                         Screen.NETWORK -> NetworkScreen(snapshot.network, snapshot.wireless)
                         Screen.DEVICES -> DevicesScreen(snapshot.devices, snapshot.wireless)
-                        Screen.STORAGE -> StorageScreen(snapshot.storage, snapshot.storageError) { refresh(Screen.STORAGE) }
+                        Screen.STORAGE -> StorageScreen(snapshot.storage, snapshot.storageError, snapshot.diskDetails) { refresh(Screen.STORAGE) }
                         Screen.PACKAGES -> PackagesScreen(snapshot.packages) { refresh(Screen.PACKAGES) }
                         Screen.DOWNLOADS -> DownloadsScreen(snapshot.downloads, api) { refresh(Screen.DOWNLOADS) }
                         Screen.SERVICES -> ServicesScreen(snapshot.services, snapshot.processes, api) { refresh(Screen.SERVICES) }
                         Screen.VPN -> VpnScreen(snapshot.vpnStatus) { refresh(Screen.VPN) }
+                        Screen.FIREWALL -> FirewallScreen(snapshot.firewallRules) { refresh(Screen.FIREWALL) }
                         Screen.SSH -> SshScreen(
                             host = runCatching { URI(url).host ?: "192.168.1.1" }.getOrDefault("192.168.1.1"),
                             defaultUser = username, connected = sshConnected, connecting = sshConnecting, output = sshOutput,
@@ -603,6 +607,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             Screen.DOWNLOADS to Icons.Outlined.Download,
                             Screen.SERVICES to Icons.Outlined.MiscellaneousServices,
                             Screen.VPN to Icons.Outlined.VpnKey,
+                            Screen.FIREWALL to Icons.Outlined.Security,
                             Screen.SSH to Icons.Outlined.Terminal,
                             Screen.LOGS to Icons.Outlined.Article,
                             Screen.SETTINGS to Icons.Outlined.Tune
@@ -1199,7 +1204,7 @@ private fun DevicesScreen(result: JSONObject?, wireless: JSONObject?) {
     }
 }
 @Composable
-private fun StorageScreen(mounts: JSONArray?, loadError: String?, onRefresh: () -> Unit) {
+private fun StorageScreen(mounts: JSONArray?, loadError: String?, diskDetails: String?, onRefresh: () -> Unit) {
     data class Mount(val path: String, val device: String, val size: Long, val available: Long) {
         val used: Long get() = (size - available).coerceAtLeast(0L)
         val percent: Int get() = if (size > 0L) ((used * 100L) / size).toInt().coerceIn(0, 100) else 0
@@ -1220,8 +1225,15 @@ private fun StorageScreen(mounts: JSONArray?, loadError: String?, onRefresh: () 
                 Text("Хранилища роутера", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 IconButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, contentDescription = "Обновить") }
             }
-            Text("Использование файловых систем и подключённых накопителей.",
+            Text("Использование файловых систем, разделов и подключённых накопителей.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            InfoCard("Физические диски · разделы · точки монтирования") {
+                Text(diskDetails ?: "Диагностика ещё не получена.",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            }
         }
         if (!loadError.isNullOrBlank()) item {
             InfoCard("Диагностика получения данных") {
@@ -1780,6 +1792,41 @@ private fun VpnScreen(status: String?, onRefresh: () -> Unit) {
         item {
             InfoCard("Диагностика туннелей и маршрутов") {
                 Text(status ?: "Данные ещё не получены.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FirewallScreen(rules: String?, onRefresh: () -> Unit) {
+    val text = rules.orEmpty()
+    val sections = text.split("NFT_RULESET")
+    val uci = sections.firstOrNull().orEmpty().substringAfter("UCI_FIREWALL", "")
+    val nft = sections.getOrNull(1).orEmpty()
+    val uciLines = uci.lines().filter { it.isNotBlank() }
+    val nftLines = nft.lines().filter { it.isNotBlank() }
+    LazyColumn(contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Правила firewall", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, null) }
+            }
+            Text("Настройки зон, перенаправлений портов и фактические правила nftables (firewall4).",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            InfoCard("Конфигурация UCI · ${uciLines.size} строк") {
+                Text(if (uciLines.isEmpty()) "Конфигурация firewall не получена." else uciLines.joinToString("\n"),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            }
+        }
+        item {
+            InfoCard("Активные правила nftables · ${nftLines.size} строк") {
+                Text(if (nftLines.isEmpty()) "Не удалось прочитать nft ruleset. Проверь наличие nftables." else nftLines.joinToString("\n"),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
             }
         }
     }

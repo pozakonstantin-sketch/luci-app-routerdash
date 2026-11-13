@@ -234,8 +234,9 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.DOWNLOADS -> snapshot.copy(downloads = client.aria2Overview())
                         Screen.SERVICES -> snapshot.copy(
                             services = client.call("rc", "list"),
-                            processes = runCatching { client.execReadOnly("top", listOf("-bn1")) }
-                                .getOrElse { runCatching { client.execReadOnly("ps", listOf("w")) }.getOrDefault("") }
+                            processes = runCatching { client.execReadOnly("top", listOf("-bn1")) }.getOrDefault("") +
+                                "\n--ROUTERDASH-PS--\n" +
+                                runCatching { client.execReadOnly("ps", listOf("-o", "pid,comm,rss")) }.getOrDefault("")
                         )
                         Screen.LOGS -> {
                             val logs = runCatching { client.call("log", "read", JSONObject().put("lines", 300)) }.getOrElse {
@@ -990,17 +991,36 @@ private fun serviceDescription(name: String): String {
 
 private fun processUsage(output: String?, service: String): Pair<String, String>? {
     if (output.isNullOrBlank()) return null
-    val lines = output.lines()
-    val header = lines.firstOrNull { it.contains("PID") && (it.contains("%CPU") || it.contains("CPU")) } ?: return null
-    val columns = header.trim().split(Regex("\\s+"))
-    val cpuIndex = columns.indexOfFirst { it.equals("%CPU", true) || it.equals("CPU%", true) }
-    val memIndex = columns.indexOfFirst { it.equals("%VSZ", true) || it.equals("MEM%", true) || it.equals("%MEM", true) }
-    if (cpuIndex < 0 || memIndex < 0) return null
-    val row = lines.dropWhile { it != header }.drop(1).firstOrNull { it.contains(service, true) } ?: return null
-    val fields = row.trim().split(Regex("\\s+"))
-    return (fields.getOrNull(cpuIndex) ?: "—") to (fields.getOrNull(memIndex) ?: "—")
+    val sections = output.split("\n--ROUTERDASH-PS--\n", limit = 2)
+    val topLines = sections.first().lines()
+    val header = topLines.firstOrNull { it.contains("PID") && it.contains("%CPU") }
+    var cpuValue = "—"
+    if (header != null) {
+        val columns = header.trim().split(Regex("\\s+"))
+        val cpuIndex = columns.indexOfFirst { it.equals("%CPU", true) || it.equals("CPU%", true) }
+        val row = topLines.dropWhile { it != header }.drop(1)
+            .firstOrNull { it.contains(service, true) }
+        if (cpuIndex >= 0 && row != null) cpuValue = row.trim().split(Regex("\\s+")).getOrNull(cpuIndex) ?: "—"
+    }
+    var rssKb = 0L
+    if (sections.size > 1) {
+        val psLines = sections[1].lines()
+        val psHeader = psLines.firstOrNull { it.contains("PID", true) && it.contains("RSS", true) }
+        if (psHeader != null) {
+            val columns = psHeader.trim().split(Regex("\\s+"))
+            val rssIndex = columns.indexOfFirst { it.equals("RSS", true) }
+            psLines.dropWhile { it != psHeader }.drop(1).forEach { row ->
+                val fields = row.trim().split(Regex("\\s+"))
+                val processName = fields.drop(1).dropLast(1).joinToString(" ")
+                if (processName.contains(service, true)) {
+                    rssKb += fields.getOrNull(rssIndex)?.toLongOrNull() ?: 0L
+                }
+            }
+        }
+    }
+    val memoryValue = if (rssKb > 0L) formatBytes(rssKb * 1024L) else "Нет данных"
+    return cpuValue to memoryValue
 }
-
 private fun packageDescription(name: String): String {
     val exact = mapOf(
         "adblock" to "Блокировка рекламы и трекеров на уровне DNS.",
@@ -1249,7 +1269,7 @@ private fun ServicesScreen(result: JSONObject?, processes: String?, api: RouterA
                 Text(serviceDescription(name), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val usage = processUsage(processes, name)
                 InfoLine("CPU процесса", usage?.first?.let { "$it%" } ?: "Нет данных")
-                InfoLine("ОЗУ процесса", usage?.second?.let { "$it%" } ?: "Нет данных")
+                InfoLine("ОЗУ процесса (RSS)", usage?.second ?: "Нет данных")
                 if (hasRuntimeState) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { pendingAction = name to "start" },

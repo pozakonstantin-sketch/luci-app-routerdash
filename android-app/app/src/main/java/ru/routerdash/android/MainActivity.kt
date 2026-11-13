@@ -295,7 +295,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         }
                         Screen.PACKAGES -> snapshot.copy(packages = client.call("rpc-sys", "packagelist"))
                         Screen.DOWNLOADS -> snapshot.copy(downloads = client.aria2Overview())
-                        Screen.FIREWALL -> snapshot.copy(firewallRules = runCatching { client.execReadOnly("sh", listOf("-c", "echo UCI_FIREWALL; uci show firewall 2>/dev/null; echo NFT_RULESET; nft list ruleset 2>/dev/null | head -n 260")) }.getOrDefault("Не удалось прочитать правила firewall")))
+                        Screen.FIREWALL -> snapshot.copy(firewallRules = runCatching { client.execReadOnly("sh", listOf("-c", "echo UCI_FIREWALL; uci show firewall 2>/dev/null; echo NFT_RULESET; nft list ruleset 2>/dev/null | head -n 260")) }.getOrDefault("Не удалось прочитать правила firewall"))
                         Screen.VPN -> snapshot.copy(vpnStatus = client.execReadOnly("sh", listOf("-c",
                             "echo VPN_PROCESSES; ps | grep -E \"tailscale|sing-box|xray|openvpn|wireguard\" | grep -v grep; " +
                             "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 30; fi; " +
@@ -327,6 +327,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             snapshot.copy(logs = logs,
                                 logsError = if (hasEntries) null else failures.joinToString("\n").ifBlank { null })
                         }
+                        Screen.SSH -> snapshot
                         Screen.SETTINGS -> snapshot
                     }
                 }

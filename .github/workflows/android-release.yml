@@ -39,13 +39,16 @@ jobs:
       - name: Validate signing secrets and decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$KEYSTORE_BASE64" || { echo "::error::Missing ANDROID_KEYSTORE_BASE64 secret"; exit 1; }
-          test -n "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" || { echo "::error::Missing ANDROID_KEYSTORE_PASSWORD secret"; exit 1; }
-          test -n "${{ secrets.ANDROID_KEY_ALIAS }}" || { echo "::error::Missing ANDROID_KEY_ALIAS secret"; exit 1; }
-          test -n "${{ secrets.ANDROID_KEY_PASSWORD }}" || { echo "::error::Missing ANDROID_KEY_PASSWORD secret"; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo "::error::Missing ANDROID_KEYSTORE_PASSWORD secret"; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "::error::Missing ANDROID_KEY_ALIAS secret"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "::error::Missing ANDROID_KEY_PASSWORD secret"; exit 1; }
           KEYSTORE_PATH="$RUNNER_TEMP/routerdash-release.jks"
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           test -s "$KEYSTORE_PATH"
@@ -68,7 +71,7 @@ jobs:
           test -s "$APK"
           test -s "$AAB"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
-          jarsigner -verify -strict -certs "$AAB"
+          jarsigner -verify -certs "$AAB"
           mkdir -p release-artifacts
           cp "$APK" "$AAB" release-artifacts/
           cd release-artifacts

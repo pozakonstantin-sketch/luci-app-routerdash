@@ -10,13 +10,13 @@
 - Отдельные Compose-разделы: обзор системы, сетевые интерфейсы, DHCP-клиенты, службы и системный журнал.
 - Данные запрашиваются напрямую у LuCI/ubus.
 - Обработка ошибок подключения и сессии.
-- Android 17: compileSdk/targetSdk 37 и запрос разрешения ACCESS_LOCAL_NETWORK.
+- Android 17: targetSdk 37 (compileSdk 36; используемые API совместимы с API 36) и запрос разрешения ACCESS_LOCAL_NETWORK.
 - Material 3, тёмная тема, нижняя навигация и адаптивная ширина контента.
 
 ## Требования
 
 - Android 8.0 (API 26) или новее.
-- Android SDK Platform 37 и JDK 17 для сборки.
+- Android SDK Platform 36 и JDK 17 для сборки.
 - OpenWrt с LuCI и доступным JSON-RPC.
 - Сетевой маршрут от телефона до роутера: Wi-Fi, VPN/Tailscale или другой туннель.
 

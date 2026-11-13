@@ -569,6 +569,8 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.SYNC -> SyncScreen(
                             sshConnected = sshConnected,
                             ssh = sshSession,
+                            sshHostDefault = runCatching { URI(url).host ?: "192.168.1.1" }.getOrDefault("192.168.1.1"),
+                            sshUserDefault = username,
                             onOpenSsh = { selected = Screen.SSH }
                         )
                         Screen.SSH -> SshScreen(
@@ -2403,7 +2405,7 @@ private fun duration(seconds: Long): String {
 
 
 @Suppress("DEPRECATION")
-private fun encryptedCredentials(context: android.content.Context): android.content.SharedPreferences {
+internal fun encryptedCredentials(context: android.content.Context): android.content.SharedPreferences {
     val key = androidx.security.crypto.MasterKey.Builder(context).setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM).build()
     return androidx.security.crypto.EncryptedSharedPreferences.create(context, "routerdash_credentials", key,
         androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,

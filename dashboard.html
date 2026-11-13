@@ -11,9 +11,17 @@
   --fg:#e6edf3; --mut:#8b98a5; --acc:#ff8a3d; --acc2:#ff6b1a;
   --ok:#3ddc84; --warn:#ffc857; --err:#ff5f56; --info:#58a6ff;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:dark;
 }
 *{box-sizing:border-box}
-html,body{margin:0;padding:0}
+html,body{margin:0;padding:0;max-width:100%;}
+html{overflow-x:hidden}
+body{overflow-x:hidden}
+button,input,select{font:inherit}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px}
+.grid>*{min-width:0}
+.card,.tblwrap{min-width:0}
+.kv span:last-child{min-width:0;overflow-wrap:anywhere}
 body{
   background:
     radial-gradient(1200px 600px at 15% -10%, rgba(255,138,61,.10), transparent 60%),
@@ -67,6 +75,8 @@ header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px
 .btn.danger:hover{border-color:var(--err);color:var(--err)}
 .btn.mini{padding:3px 9px;font-size:11.5px;border-radius:6px}
 .btn:disabled{opacity:.45;cursor:default}
+.btn,.chip,nav button{min-height:36px}
+button{touch-action:manipulation}
 .btn.power{padding:6px 13px;font-size:12.5px;font-weight:600;letter-spacing:.2px;
   border:1px solid rgba(255,95,86,.55);color:#ff9a94;
   background:linear-gradient(180deg,rgba(255,95,86,.18),rgba(255,95,86,.07));
@@ -88,9 +98,9 @@ section{display:none}
 section.on{display:block}
 
 .grid{display:grid;gap:14px}
-.g4{grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
-.g3{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
-.g2{grid-template-columns:repeat(auto-fit,minmax(420px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 17px;
   box-shadow:0 8px 24px rgba(0,0,0,.22)}
 .card h3{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:1.1px;color:var(--mut);
@@ -203,7 +213,39 @@ canvas{width:100%;display:block}
 @keyframes sp{to{transform:rotate(360deg)}}
 footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px solid var(--line);margin-top:26px;
   display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
-@media(max-width:700px){ .pills{margin-left:0} main{padding:12px} nav{padding:10px 12px 0} header{padding:10px 12px} }
+@media(max-width:700px){
+  header{padding:10px 12px;gap:9px}
+  .pills{margin-left:0;gap:6px}
+  .pill{padding:4px 8px;font-size:11.5px}
+  main{padding:12px 10px 28px}
+  nav{padding:10px 10px 0;gap:4px}
+  nav button{padding:8px 11px}
+  #luciNav{padding:10px}
+  .card{padding:13px}
+  .card h3{flex-wrap:wrap}
+  input.filter{min-width:0;max-width:100%}
+  .tblwrap{max-width:100%;overscroll-behavior-x:contain}
+  footer{padding:14px 12px 24px}
+}
+@media(max-width:480px){
+  .brand{font-size:14px}
+  .brand span.sub{font-size:11px}
+  .pills{width:100%}
+  .pills .pill{flex:1 1 auto}
+  .btn.power{margin-left:auto}
+  .health{gap:12px}
+  .big{font-size:26px}
+  .svc{gap:7px;padding:8px}
+  .svc .nm{min-width:0;overflow-wrap:anywhere}
+  .svc .act{width:100%;margin-left:0}
+  .svc .act .btn{flex:1}
+  .logline{gap:6px;padding:5px 7px;font-size:11px}
+  .logline .t{flex-basis:62px}
+  .lv{flex-basis:48px}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
 </style>
 </head>
 <body>
@@ -326,7 +368,7 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
     <div class="card">
       <h3>Быстрые действия</h3>
       <div class="links" style="flex-direction:column">
-        <a href="/cgi-bin/luci/" target="_blank">🧭 LuCI · OpenWrt</a>
+        <a href="/cgi-bin/luci/" target="_blank" rel="noopener noreferrer">🧭 LuCI · OpenWrt</a>
         <a href="/ariang/" target="_blank">⬇ AriaNG · менеджер загрузок</a>
         <a href="/cgi-bin/luci/admin/vpn/tailscale/setting" target="_blank">🌐 Tailscale</a>
         <a href="/cgi-bin/luci/admin/services/tachyon/tachyon" target="_blank">🛡 Tachyon</a>
@@ -480,7 +522,7 @@ footer{padding:16px 20px 30px;color:var(--mut);font-size:12px;border-top:1px sol
 
 <footer>
   <div id="ftLeft">OpenWrt · загрузка…</div>
-  <div>RouterDash 1.3.1 · данные через ubus JSON-RPC</div>
+  <div>RouterDash 1.4.0 · данные через ubus JSON-RPC</div>
 </footer>
 
 <div id="toast"></div>
@@ -550,7 +592,7 @@ function needLogin(){
 }
 
 /* ================= state ================= */
-let TAB='overview', POLL=5000, timer=null, PAUSED=false;
+let TAB='overview', POLL=8000, timer=null, PAUSED=false;
 const BW={wan:[],lan:[],prev:null};
 let PKGS=null, PKGFilter='all';
 
@@ -573,18 +615,22 @@ $('tabs').addEventListener('click',ev=>{
 /* ================= polling ================= */
 function startPoll(){
   stopPoll();
-  timer=setInterval(refresh,POLL);
+  schedulePoll();
+}
+function schedulePoll(){
+  if(LOGIN_HOP||document.hidden)return;
+  timer=setTimeout(async()=>{
+    await refresh();
+    schedulePoll();
+  },POLL);
 }
 function stopPoll(){
-  if(timer)clearInterval(timer);timer=null;
+  if(timer)clearTimeout(timer);timer=null;
 }
-let refreshing=false, refreshStart=0;
+let refreshing=false;
 async function refresh(){
-  if(LOGIN_HOP)return;
-  if(refreshing){
-    if(Date.now()-refreshStart>25000)refreshing=false; else return;
-  }
-  refreshing=true;refreshStart=Date.now();
+  if(LOGIN_HOP||document.hidden||refreshing)return;
+  refreshing=true;
   $('pSpin').style.visibility='visible';
   try{
     await Promise.all([loadHeader(),loadBandwidth()]);
@@ -606,6 +652,10 @@ async function refresh(){
     renderHealth();renderTachyon();
   }
 }
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden)stopPoll();
+  else{refresh();startPoll();}
+});
 
 /* ================= header ================= */
 let BOARD=null, LUCI=null;
@@ -686,7 +736,7 @@ async function loadHeader(){
   if(si){
     $('pUp').textContent=fmtDur(si.uptime);
     const used=si.memory.total-si.memory.available;
-    const pct=Math.round(used/si.memory.total*100);
+    const pct=si.memory.total>0?Math.max(0,Math.min(100,Math.round(used/si.memory.total*100))):0;
     HEALTH.ram=pct;
     $('pRam').textContent=pct+'%';
     $('upVal').textContent=fmtDur(si.uptime);
@@ -851,7 +901,7 @@ async function loadMounts(){
   const box=$('mounts');
   if(!m||!m.result){box.innerHTML='<div class="empty">Нет данных</div>';return;}
   const rows=m.result.filter(x=>x.size>0).map(x=>{
-    const used=x.size-x.avail,p=Math.min(100,Math.round(used/x.size*100));
+    const used=Math.max(0,x.size-x.avail),p=Math.max(0,Math.min(100,Math.round(used/x.size*100)));
     const cls=p>90?'err':p>75?'warn':'ok';
     return `<div style="margin-bottom:11px">
       <div class="barlab"><span>${esc(x.mount)} <span style="color:var(--mut)">(${esc(x.device)})</span></span>
@@ -1187,12 +1237,13 @@ async function loadServices(){
     const badge=v.running?'<span class="badge ok">работает</span>':
       isDaemon?'<span class="badge err">остановлен</span>':
       v.enabled?'<span class="badge info">автозапуск</span>':'<span class="badge">выкл</span>';
-    const autostart=v.enabled?'<span class="badge">start:'+v.start+'</span>':'';
+    const autostart=v.enabled?'<span class="badge">автозапуск: '+esc(v.start)+'</span>':'';
     let acts='';
-    if(isDaemon){
-      acts=`<button class="btn mini" data-s="${n}" data-a="start">▶</button>
-            <button class="btn mini" data-s="${n}" data-a="stop">■</button>
-            <button class="btn mini" data-s="${n}" data-a="restart">↻</button>`;
+    const safeServiceName=/^[a-zA-Z0-9_.@-]{1,64}$/.test(n);
+    if(isDaemon&&safeServiceName){
+      acts=`<button class="btn mini" data-s="${esc(n)}" data-a="start" aria-label="Запустить ${esc(n)}">▶</button>
+            <button class="btn mini" data-s="${esc(n)}" data-a="stop" aria-label="Остановить ${esc(n)}">■</button>
+            <button class="btn mini" data-s="${esc(n)}" data-a="restart" aria-label="Перезапустить ${esc(n)}">↻</button>`;
     }
     return `<div class="svc"><span class="nm">${esc(n)}</span>${badge}${autostart}
       <span class="act">${acts}</span></div>`;
@@ -1204,6 +1255,9 @@ async function loadServices(){
 $('svcList').addEventListener('click',async ev=>{
   const b=ev.target.closest('button[data-a]');if(!b)return;
   const n=b.dataset.s,a=b.dataset.a;
+  if(!/^[a-zA-Z0-9_.@-]{1,64}$/.test(n)||!['start','stop','restart'].includes(a)){
+    toast('Некорректное имя службы или действие','err');return;
+  }
   if(a==='stop'&&!confirm('Остановить сервис "'+n+'"?'))return;
   if(a==='restart'&&!confirm('Перезапустить сервис "'+n+'"?'))return;
   b.disabled=true;
@@ -1217,9 +1271,16 @@ $('svcRefresh').addEventListener('click',loadServices);
 
 /* ================= aria2 ================= */
 async function arCall(method,params){
-  const r=await fetch('//'+location.hostname+':6800/jsonrpc',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({jsonrpc:'2.0',id:Date.now(),method,params:params||[]})});
+  const ctl=new AbortController();
+  const timeout=setTimeout(()=>ctl.abort(),10000);
+  let r;
+  try{
+    r=await fetch('//'+location.hostname+':6800/jsonrpc',{method:'POST',
+      credentials:'omit',cache:'no-store',signal:ctl.signal,
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({jsonrpc:'2.0',id:Date.now(),method,params:params||[]})});
+  }finally{clearTimeout(timeout);}
+  if(!r.ok)throw new Error('HTTP '+r.status);
   const j=await r.json();
   if(j.error)throw new Error(j.error.message);
   return j.result;

@@ -707,6 +707,58 @@ private fun OverviewScreen(s: Snapshot) {
                 InfoLine("Архитектура", board?.optString("system", "—") ?: "—")
             }
         }
+        item {
+            StatusRecommendationsCard(
+                cpuPercent = s.cpuPercent,
+                ramPercent = if (total > 0L) (ramPercent * 100f).toInt() else null,
+                availableRam = available.takeIf { total > 0L }
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusRecommendationsCard(cpuPercent: Int?, ramPercent: Int?, availableRam: Long?) {
+    val issues = buildList {
+        if (cpuPercent != null && cpuPercent >= 85) add("Высокая загрузка CPU ($cpuPercent%). Проверь список процессов и активные службы.")
+        if (ramPercent != null && ramPercent >= 90) add("Критически мало свободной памяти ($ramPercent% занято). Найди процессы с большим потреблением ОЗУ.")
+        else if (ramPercent != null && ramPercent >= 80) add("ОЗУ занято на $ramPercent%. Проверь, не растёт ли потребление памяти со временем.")
+        if (availableRam != null && availableRam < 64L * 1024L * 1024L)
+            add("Свободно менее 64 МБ ОЗУ. Избегай запуска дополнительных тяжёлых служб.")
+    }
+    val warning = issues.isNotEmpty()
+    InfoCard("Состояние системы и рекомендации") {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(
+                if (warning) Icons.Outlined.WarningAmber else Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                tint = if (warning) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+            )
+            Text(
+                when {
+                    cpuPercent == null || ramPercent == null -> "Собираем показатели для оценки"
+                    warning -> "Требуется внимание"
+                    else -> "Работает в нормальном режиме"
+                },
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        if (issues.isEmpty()) {
+            Text(
+                if (cpuPercent == null || ramPercent == null) "Рекомендации появятся после получения статистики CPU и памяти."
+                else "Критичных отклонений по загрузке процессора и памяти не обнаружено.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            issues.forEach { recommendation ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Outlined.ChevronRight, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
+                    Text(recommendation, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
     }
 }
 

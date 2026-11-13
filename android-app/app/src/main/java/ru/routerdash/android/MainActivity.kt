@@ -47,6 +47,7 @@ import java.net.URI
 import java.util.concurrent.TimeUnit
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.ChannelShell
+import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.Session
 import java.io.InputStream
 import java.io.OutputStream
@@ -141,7 +142,7 @@ class MainActivity : FragmentActivity() {
 }
 
 private enum class Screen(val title: String) {
-    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), PACKAGES("Пакеты"), DOWNLOADS("Загрузки"), SERVICES("Службы"), VPN("VPN"), FIREWALL("Правила"), SSH("SSH-терминал"), LOGS("Журнал"), SETTINGS("Настройки")
+    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), PACKAGES("Пакеты"), DOWNLOADS("Загрузки"), SERVICES("Службы"), VPN("VPN"), FIREWALL("Правила"), SSH("SSH-терминал"), SYNC("Синхронизация"), LOGS("Журнал"), SETTINGS("Настройки")
 }
 private data class TrafficPoint(val rx: Long, val tx: Long)
 private data class Snapshot(
@@ -329,6 +330,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 logsError = if (hasEntries) null else failures.joinToString("\n").ifBlank { null })
                         }
                         Screen.SSH -> snapshot
+                        Screen.SYNC -> snapshot
                         Screen.SETTINGS -> snapshot
                     }
                 }
@@ -528,6 +530,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 Screen.VPN to Icons.Outlined.VpnKey,
                                 Screen.FIREWALL to Icons.Outlined.Security,
                                 Screen.SSH to Icons.Outlined.Terminal,
+                                Screen.SYNC to Icons.Outlined.Sync,
                                 Screen.LOGS to Icons.Outlined.Article,
                                 Screen.SETTINGS to Icons.Outlined.Tune
                             )
@@ -561,6 +564,11 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.SERVICES -> ServicesScreen(snapshot.services, snapshot.processes, api) { refresh(Screen.SERVICES) }
                         Screen.VPN -> VpnScreen(snapshot.vpnStatus) { refresh(Screen.VPN) }
                         Screen.FIREWALL -> FirewallScreen(snapshot.firewallRules) { refresh(Screen.FIREWALL) }
+                        Screen.SYNC -> SyncScreen(
+                            sshConnected = sshConnected,
+                            ssh = sshSession,
+                            onOpenSsh = { selected = Screen.SSH }
+                        )
                         Screen.SSH -> SshScreen(
                             host = runCatching { URI(url).host ?: "192.168.1.1" }.getOrDefault("192.168.1.1"),
                             defaultUser = username, connected = sshConnected, connecting = sshConnecting, output = sshOutput,
@@ -616,6 +624,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             Screen.VPN to Icons.Outlined.VpnKey,
                             Screen.FIREWALL to Icons.Outlined.Security,
                             Screen.SSH to Icons.Outlined.Terminal,
+                            Screen.SYNC to Icons.Outlined.Sync,
                             Screen.LOGS to Icons.Outlined.Article,
                             Screen.SETTINGS to Icons.Outlined.Tune
                         )
@@ -2065,7 +2074,7 @@ private fun EmptyState(message: String) {
     Text(message, Modifier.fillMaxWidth().padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-private class SshTerminal(private val context: android.content.Context) {
+internal class SshTerminal(private val context: android.content.Context) {
     var fingerprint: String = ""
         private set
     private var session: Session? = null
@@ -2121,6 +2130,57 @@ private class SshTerminal(private val context: android.content.Context) {
         val buffer = ByteArray(minOf(available, 8192))
         val count = stream.read(buffer)
         return if (count > 0) String(buffer, 0, count, Charsets.UTF_8) else ""
+    }
+
+    private fun openSftp(): ChannelSftp {
+        val active = session ?: throw IllegalStateException("SSH-сессия не открыта.")
+        if (!active.isConnected) throw IllegalStateException("SSH-соединение потеряно. Подключись заново.")
+        return (active.openChannel("sftp") as ChannelSftp).also { it.connect(10000) }
+    }
+
+    internal fun listRemote(path: String): List<RemoteSyncEntry> {
+        val sftp = openSftp()
+        try {
+            val rows = sftp.ls(path) as java.util.Vector<*>
+            return rows.mapNotNull { row ->
+                val entry = row as? ChannelSftp.LsEntry ?: return@mapNotNull null
+                if (entry.filename == "." || entry.filename == "..") return@mapNotNull null
+                val attrs = entry.attrs
+                RemoteSyncEntry(entry.filename, attrs.isDir, attrs.size, attrs.mTime.toLong() * 1000L)
+            }
+        } catch (e: Exception) {
+            throw IllegalStateException("Не удалось прочитать SFTP-каталог $path: ${e.message}", e)
+        } finally { runCatching { sftp.disconnect() } }
+    }
+
+    internal fun ensureRemoteDirectory(path: String) {
+        val sftp = openSftp()
+        try {
+            var current = if (path.startsWith("/")) "/" else ""
+            path.split('/').filter { it.isNotBlank() }.forEach { part ->
+                current = if (current == "/") "/$part" else if (current.isBlank()) part else "$current/$part"
+                try {
+                    val attrs = sftp.stat(current)
+                    if (!attrs.isDir) throw IllegalStateException("$current существует, но это не папка.")
+                } catch (e: com.jcraft.jsch.SftpException) {
+                    sftp.mkdir(current)
+                }
+            }
+        } finally { runCatching { sftp.disconnect() } }
+    }
+
+    internal fun uploadFile(input: InputStream, remotePath: String) {
+        val sftp = openSftp()
+        try { sftp.put(input, remotePath, ChannelSftp.OVERWRITE) }
+        catch (e: Exception) { throw IllegalStateException("Ошибка загрузки на SSD: ${e.message}", e) }
+        finally { runCatching { sftp.disconnect() } }
+    }
+
+    internal fun downloadFile(remotePath: String, output: OutputStream) {
+        val sftp = openSftp()
+        try { sftp.get(remotePath, output) }
+        catch (e: Exception) { throw IllegalStateException("Ошибка скачивания с SSD: ${e.message}", e) }
+        finally { runCatching { sftp.disconnect() } }
     }
 
     @Synchronized

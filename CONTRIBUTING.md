@@ -1,57 +1,52 @@
-# Как помочь проекту
+# Contributing to RouterDash
 
-Спасибо за интерес! Ниже — как собрать, проверить и прислать изменения.
+Thanks for helping improve RouterDash! Bug reports, compatibility reports, documentation fixes and code contributions are welcome.
 
-## Сообщения об ошибках
+## Before opening an issue
 
-Перед созданием issue:
+1. Check the [FAQ](docs/FAQ.md) and search existing Issues.
+2. Confirm that you are using OpenWrt 25.12 or later with LuCI for the current APK release.
+3. Include:
+   - router manufacturer and model;
+   - OpenWrt version and target (output of `ubus call system board`);
+   - RouterDash package version;
+   - steps to reproduce and expected/actual behaviour;
+   - relevant `logread` output and browser-console errors.
 
-1. Проверьте, что проблема воспроизводится на OpenWrt 24.10+ с LuCI.
-2. Посмотрите [FAQ](docs/FAQ.md) и существующие issues.
-3. Приложите:
-   - модель роутера и версию OpenWrt (`ubus call system board`);
-   - версию пакета (`apk list -I | grep routerdash`);
-   - вывод `logread | tail -50` и ошибки из консоли браузера (F12 → Console).
+Please redact passwords, LuCI session tokens, public IP addresses, MAC addresses and other private information before posting logs.
 
-## Локальная сборка
+## Development setup
 
-Нужен только Python 3.11+.
+The dashboard is maintained in the root-level `dashboard.html` file (HTML, CSS and JavaScript). The package builder copies this canonical file into the package tree.
+
+A local package build requires Python 3.11+:
 
 ```sh
 cd package
 python3 build-apk.py
 ```
 
-Результат — `package/dist/luci-app-routerdash-<version>.apk`.
+The generated APK is written to `package/dist/`. The current package is APK v3 for OpenWrt 25.12+. An IPK/OPKG build for OpenWrt 24.10 and older is not currently provided.
 
-Проверка пакета на роутере:
+## Testing changes
 
-```sh
-scp package/dist/*.apk root@192.168.1.1:/tmp/
-ssh root@192.168.1.1 "apk add --allow-untrusted /tmp/luci-app-routerdash-*.apk"
-```
+Before submitting a Pull Request:
 
-Удаление:
+- run the package build;
+- run the repository's static checks / CI workflow;
+- test the changed screen in a browser where possible;
+- test on a real OpenWrt router when the change depends on ubus, procfs, sysfs or service behaviour;
+- state clearly which device and firmware were used.
 
-```sh
-ssh root@192.168.1.1 "apk del luci-app-routerdash"
-```
+Do not claim hardware compatibility based only on a successful build.
 
-## Правки
+## Pull Requests
 
-- Дашборд — единственный файл `dashboard.html` в корне (HTML + CSS + JS,
-  без сборщиков). При сборке он копируется в пакет автоматически.
-- Lua/ucode-контроллер и меню — в `package/files/`.
-- Скрипты установки — в `package/scripts/`.
-- После изменения `dashboard.html` проверьте страницу в браузере:
-  вкладки, живые метрики и отсутствие ошибок в консоли.
-- Коммиты — в повелительном наклонении, на русском или английском.
-- Перед PR обновите `CHANGELOG.md` и версию в `package/build-apk.py`.
+1. Create a feature branch from the current development base.
+2. Keep changes focused and explain the user-visible impact.
+3. Update documentation and changelog when behaviour or installation changes.
+4. Include test evidence and note anything that still needs real-device verification.
 
-## Пул-реквесты
+## Security
 
-1. Форк → ветка от `main`.
-2. Изменения + проверка сборки.
-3. PR с описанием: что и зачем, как проверяли, на каком роутере.
-
-CI соберёт apk автоматически; артефакт будет доступен в разделе Actions.
+Do not include credentials, session tokens, private router configurations or personal network information in commits or test fixtures. If you discover a security issue, avoid publishing exploit details in a public Issue; contact the maintainer privately through GitHub.

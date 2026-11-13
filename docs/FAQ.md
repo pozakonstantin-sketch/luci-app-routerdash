@@ -1,71 +1,58 @@
 # FAQ
 
-## Подойдёт ли пакет моему роутеру?
+## Which OpenWrt versions are supported?
 
-Да, если на нём OpenWrt 24.10 или новее и установлен LuCI (`luci-base`).
-Пакет имеет архитектуру `noarch`, поэтому один и тот же файл работает
-на ARM, MIPS и x86.
+The current downloadable package is an **APK v3** package for **OpenWrt 25.12 or later**, with LuCI (`luci-base`) installed.
 
-## Почему при установке нужен `--allow-untrusted`?
+OpenWrt 24.10 and older use OPKG and IPK packages. The current APK cannot be installed there. A separate IPK build is needed before those releases can be supported.
 
-Пакет собран без подписи ключом OpenWrt. Флаг разрешает установку
-неподписанного файла и действует только для этого запуска:
+## Does it work on every router architecture?
+
+The package is marked `noarch` because it does not include architecture-specific executable binaries. However, not every router model has been tested. Dashboard data depends on the ubus methods, drivers and metric sources exposed by the firmware. Please report your model and firmware version if something is missing.
+
+## Why does installation require `--allow-untrusted`?
+
+The release APK is not signed with a package signing key trusted by OpenWrt. The flag allows installation of this local file:
 
 ```sh
-apk add --allow-untrusted /tmp/luci-app-routerdash-1.3.1-r1.apk
+apk add --allow-untrusted /tmp/luci-app-routerdash-<version>.apk
 ```
 
-## Дашборд не открывается, вижу LuCI
+Only install software you trust. Review the source and release artifacts before running third-party code with root privileges.
 
-Проверьте, что пакет установлен и файл на месте:
+## The dashboard does not open
+
+Check that the package is installed and the page exists:
 
 ```sh
-apk list -I | grep routerdash
+apk list --installed | grep routerdash
 ls -l /www/dashboard.html
 ```
 
-Затем откройте `http://192.168.1.1/dashboard.html` напрямую.
+Then try opening `http://ROUTER-IP/dashboard.html` directly. Replace `ROUTER-IP` with the router's address. If it still fails, attach relevant `logread` output and the browser console error to an Issue. Redact secrets first.
 
-## Нет данных CPU, температуры или интернета
+## CPU, temperature or internet status is missing
 
-Дашборд использует модуль мониторинга, если он есть, иначе берёт данные
-из `/proc/stat`, `/sys/class/thermal/` и `network.interface.wan`.
-Если температура не отображается, у роутера может не быть датчика —
-это нормально.
+Metric availability depends on the device. Some routers do not expose a thermal sensor, and interface names or ubus responses can differ between firmware builds. Missing temperature data may be normal; missing CPU or WAN data should be reported with the router model and `ubus call system board` output.
 
-## Как вернуть прежнюю главную страницу?
+## How do I restore the previous LuCI start page?
 
-Удалите пакет:
+Remove the package:
 
 ```sh
 apk del luci-app-routerdash
 ```
 
-Прежний `/www/index.html` восстановится из
-`/www/index.html.routerdash-backup`.
+The uninstall script restores the saved `/www/index.html.routerdash-backup`, if the installer created it.
 
-## Как обновить дашборд?
+## How do I update RouterDash?
 
-Скачайте новый `.apk` из Releases и установите его той же командой
-`apk add --allow-untrusted`. `apk` сам заменит версию.
+Download the newer APK from [GitHub Releases](https://github.com/pozakonstantin-sketch/luci-app-routerdash/releases), copy it to the router and install it with `apk add --allow-untrusted`.
 
-## Почему в «Сервисах» firewall показан остановленным?
+## Does RouterDash change my router configuration?
 
-`rc list` не видит процессов у oneshot-служб (firewall, system).
-Сам firewall при этом работает (`fw4` активен). Карточка «Общее состояние»
-проверяет только службы-демоны, поэтому не считает это ошибкой.
+The dashboard is designed to read system information through LuCI/ubus. The package installation scripts also set the dashboard as the web start page and save the previous start page for restoration on uninstall. Review the source before installing and report any unexpected behaviour.
 
-## Дашборд спрашивает пароль?
+## Is OpenWrt 24.10 supported?
 
-Отдельного пароля нет: используется сессия LuCI. Если сессии нет,
-откроется штатная форма входа LuCI, после неё вы вернётесь на дашборд.
-
-## Где хранятся настройки?
-
-Их нет — дашборд ничего не настраивает и не пишет в конфиги. Пакет
-добавляет только страницу, маршрут меню и скрипты установки.
-
-## Совместим ли пакет с opkg?
-
-Нет. Для OpenWrt 23.05 и ниже нужен пакет формата `.ipk`, которого
-в проекте пока нет.
+Not by the current APK v3 release. OpenWrt 24.10 uses OPKG/IPK. Do not rename the APK to IPK; the formats are different. A separate IPK build is required.

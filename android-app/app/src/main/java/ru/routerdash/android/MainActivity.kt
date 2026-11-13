@@ -2047,7 +2047,7 @@ private fun MetricCard(title: String, value: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun InfoCard(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+internal fun InfoCard(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
     val edge = androidx.compose.ui.graphics.Brush.linearGradient(
         listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
@@ -2064,7 +2064,7 @@ private fun InfoCard(title: String, modifier: Modifier = Modifier, content: @Com
 }
 
 @Composable
-private fun InfoLine(label: String, value: String) {
+internal fun InfoLine(label: String, value: String) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, fontWeight = FontWeight.Medium)
@@ -2385,7 +2385,7 @@ private fun formatRate(bytesPerSecond: Long): String {
     return formatBytes(bytesPerSecond) + "/с"
 }
 
-private fun formatBytes(bytes: Long): String {
+internal fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return bytes.toString() + " Б"
     val units = listOf("КБ", "МБ", "ГБ", "ТБ")
     var value = bytes.toDouble()

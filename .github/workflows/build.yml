@@ -16,6 +16,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Static dashboard checks
+        run: python3 tests/test_dashboard.py
+
       - name: Build package
         run: python3 package/build-apk.py
 

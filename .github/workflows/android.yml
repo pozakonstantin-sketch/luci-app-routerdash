@@ -1,4 +1,5 @@
 name: Android app
+# Rebuild after Compose chart compilation fixes
 
 on:
   push:

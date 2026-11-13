@@ -1,79 +1,61 @@
 # luci-app-routerdash
 
-Тёмный дашборд OpenWrt — устанавливается как обычный apk-пакет
-на любой роутер с OpenWrt 24.10+ и LuCI.
+RouterDash is a responsive OpenWrt dashboard. This package is built as **APK v3 for OpenWrt 25.12+**.
 
-## Что делает пакет
+## Requirements
 
-- ставит `/www/dashboard.html` — сам дашборд (8 вкладок: обзор, сеть, Wi-Fi,
-  клиенты, сервисы, загрузки, пакеты, логи);
-- ставит контроллер LuCI и пункт меню **«Дашборд»** (первый в меню);
-- делает дашборд стартовой страницей: `/www/index.html` начинает
-  перенаправлять на `dashboard.html`;
-- прежний `index.html` сохраняется в `/www/index.html.routerdash-backup`
-  и возвращается при удалении пакета;
-- при удалении пакета стартовая страница восстанавливается автоматически.
+- OpenWrt 25.12 or later (APK v3 package manager).
+- LuCI installed (`luci-base`).
+- A modern browser with JavaScript enabled.
 
-Архитектура пакета — `noarch`, поэтому он подходит для любого роутера
-(ARM, MIPS, x86) — лишь бы был apk и LuCI.
+OpenWrt 24.10 and older use OPKG/IPK and are not supported by this APK build. Do not rename the APK file to IPK.
 
-## Требования
+## What the package installs
 
-- OpenWrt **24.10 или новее** (пакетный менеджер apk);
-- установленный **LuCI** (`luci-base`) — через него проходит авторизация;
-- пакет **не подписан**, поэтому устанавливается с флагом
-  `--allow-untrusted` (одноразово, только для этого файла).
+- `/www/dashboard.html` — the dashboard UI.
+- LuCI controller and menu entry for RouterDash.
+- An install script that backs up the existing `/www/index.html` and redirects the start page to the dashboard.
+- An uninstall script that restores the saved start page when available.
 
-## Установка
+The package is marked `noarch`; this describes the package contents, not a claim that every router model has been tested.
 
-Скопировать apk на роутер и установить:
+## Install
+
+Download the APK from GitHub Releases, copy it to the router and run:
 
 ```sh
 scp luci-app-routerdash-*.apk root@192.168.1.1:/tmp/
 ssh root@192.168.1.1 "apk add --allow-untrusted /tmp/luci-app-routerdash-*.apk"
 ```
 
-После установки открыть `http://192.168.1.1/` — откроется дашборд.
-Если сессии LuCI ещё нет, покажется штатная форма входа, после входа
-вернёт на дашборд.
+The release package is not signed with a key trusted by OpenWrt. Review the source and package contents before installing third-party software as root.
 
-## Обновление
+## Upgrade
 
-```sh
-scp luci-app-routerdash-*.apk root@192.168.1.1:/tmp/
-ssh root@192.168.1.1 "apk add --allow-untrusted /tmp/luci-app-routerdash-*.apk"
-```
+Install the newer APK using the same `apk add --allow-untrusted` command. The package manager replaces the installed version.
 
-## Удаление
+## Uninstall
 
 ```sh
 ssh root@192.168.1.1 "apk del luci-app-routerdash"
 ```
 
-Файлы дашборда удаляются, стартовая страница восстанавливается из
-`/www/index.html.routerdash-backup`.
+The previous start page is restored if the backup exists.
 
-## Сборка
+## Build
 
-Дашборд берётся из `../dashboard.html` в корне репозитория.
+Python 3.11+ is required. The project includes a standalone APK v3 builder:
 
 ```sh
 cd package
 python3 build-apk.py
 ```
 
-Результат: `package/dist/luci-app-routerdash-<version>.apk`.
-Скрипт собирает формат APK v3 (ADB) без OpenWrt SDK.
+The generated package is placed in `package/dist/`. The canonical UI source is `dashboard.html` in the repository root.
 
-Полная документация проекта — в [README](../README.md) в корне репозитория.
+## Documentation
 
-## Примечания
-
-- Если на роутере нет модуля мониторинга, дашборд автоматически берёт
-  CPU/температуру/статус WAN из стандартных источников (`/proc/stat`,
-  thermal, `network.interface.wan`).
-- Если скрипты установки отключены (`--no-scripts`), дашборд всё равно
-  доступен по адресу `/dashboard.html` и в меню LuCI, но стартовая
-  страница не изменится.
-- Пакет меняет только `/www/index.html`; для возврата к исходному виду
-  достаточно удалить пакет.
+- [Project overview and installation (Russian)](../README.md)
+- [Project overview and installation (English)](../README.en.md)
+- [FAQ](../docs/FAQ.md)
+- [Contributing](../CONTRIBUTING.md)

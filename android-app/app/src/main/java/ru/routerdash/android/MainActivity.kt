@@ -201,7 +201,14 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             info = client.call("system", "info"),
                             cpuRaw = runCatching { readUbusFile(client, "/proc/stat") }.getOrNull()?.takeIf { it.contains("cpu ") }
                                 ?: runCatching { client.execReadOnly("cat", listOf("/proc/stat")) }.getOrNull(),
-                            networkDevices = client.call("luci-rpc", "getNetworkDevices")
+                            networkDevices = client.call("luci-rpc", "getNetworkDevices"),
+                            storage = runCatching { parseDfOutput(client.execReadOnly("df", listOf("-kP"))) }.getOrNull(),
+                            vpnStatus = runCatching {
+                                client.execReadOnly("sh", listOf("-c",
+                                    "echo VPN_PROCESSES; ps | grep -E \"tailscale|sing-box|xray|openvpn|wireguard\" | grep -v grep; " +
+                                    "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 10; fi; " +
+                                    "echo TUNNEL_INTERFACES; ip -o addr 2>/dev/null | grep -E \"tailscale|tun|wg|sing\""))
+                            }.getOrDefault("Не удалось получить состояние VPN")
                         )
                         Screen.NETWORK -> {
                             val ifaceDump = client.call("network.interface", "dump")
@@ -287,6 +294,11 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         }
                         Screen.PACKAGES -> snapshot.copy(packages = client.call("rpc-sys", "packagelist"))
                         Screen.DOWNLOADS -> snapshot.copy(downloads = client.aria2Overview())
+                        Screen.VPN -> snapshot.copy(vpnStatus = client.execReadOnly("sh", listOf("-c",
+                            "echo VPN_PROCESSES; ps | grep -E \"tailscale|sing-box|xray|openvpn|wireguard\" | grep -v grep; " +
+                            "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 30; fi; " +
+                            "echo TUNNEL_INTERFACES; ip -o addr 2>/dev/null | grep -E \"tailscale|tun|wg|sing\"; " +
+                            "echo ROUTES; ip route 2>/dev/null | head -n 15")))
                         Screen.SERVICES -> snapshot.copy(
                             services = client.call("rc", "list"),
                             processes = runCatching { client.execReadOnly("top", listOf("-bn1")) }.getOrDefault("") +

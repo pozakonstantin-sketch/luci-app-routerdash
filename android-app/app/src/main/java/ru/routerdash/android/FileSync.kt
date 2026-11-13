@@ -116,7 +116,10 @@ internal object SftpFileSync {
                             throw IllegalStateException("Не удалось безопасно сохранить предыдущую версию $name.")
                         }
                         backup = parent.findFile(backupName)
-                            ?: throw IllegalStateException("Не удалось найти резервную копию $name.")
+                        if (backup == null) {
+                            parent.findFile(backupName)?.renameTo(name)
+                            throw IllegalStateException("Не удалось проверить резервную копию $name; исходная версия оставлена на месте.")
+                        }
                     }
                     if (!temp.renameTo(name)) {
                         backup?.renameTo(name)

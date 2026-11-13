@@ -60,6 +60,7 @@ internal fun SyncScreen(
     var status by remember { mutableStateOf("Выбери папку телефона и укажи каталог SSD на роутере.") }
     var lastResult by remember { mutableStateOf<TransferResult?>(null) }
     var comparison by remember { mutableStateOf<SyncComparison?>(null) }
+    var pendingTransfer by remember { mutableStateOf<Boolean?>(null) }
 
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -81,6 +82,32 @@ internal fun SyncScreen(
 
     val localTree = remember(localTreeUri) {
         localTreeUri?.let { DocumentFile.fromTreeUri(context, it) }
+    }
+
+    pendingTransfer?.let { upload ->
+        AlertDialog(
+            onDismissRequest = { pendingTransfer = null },
+            title = { Text(if (upload) "Копировать на SSD?" else "Скачать на телефон?") },
+            text = {
+                Text(
+                    if (upload)
+                        "Файлы из выбранной папки телефона будут скопированы в $remotePath. " +
+                            "Файлы с теми же именами, но другим размером или временем изменения, будут перезаписаны на SSD."
+                    else
+                        "Файлы из $remotePath будут скопированы в выбранную папку телефона. " +
+                            "Существующие файлы с теми же именами, но другим размером или временем изменения, будут перезаписаны."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingTransfer = null
+                    runTransfer(upload)
+                }) { Text("Продолжить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingTransfer = null }) { Text("Отмена") }
+            }
+        )
     }
 
     fun compareFolders() {
@@ -211,7 +238,7 @@ internal fun SyncScreen(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { runTransfer(true) },
+                        onClick = { pendingTransfer = true },
                         modifier = Modifier.weight(1f),
                         enabled = !busy && sshConnected && localTree != null
                     ) {
@@ -220,7 +247,7 @@ internal fun SyncScreen(
                         Text("На SSD")
                     }
                     OutlinedButton(
-                        onClick = { runTransfer(false) },
+                        onClick = { pendingTransfer = false },
                         modifier = Modifier.weight(1f),
                         enabled = !busy && sshConnected && localTree != null
                     ) {

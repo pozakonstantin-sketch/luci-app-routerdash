@@ -48,8 +48,10 @@ import java.util.concurrent.TimeUnit
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.ChannelShell
 import com.jcraft.jsch.ChannelSftp
+import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.Session
 import java.io.InputStream
+import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 
 class MainActivity : FragmentActivity() {
@@ -2136,6 +2138,38 @@ internal class SshTerminal(private val context: android.content.Context) {
         val active = session ?: throw IllegalStateException("SSH-сессия не открыта.")
         if (!active.isConnected) throw IllegalStateException("SSH-соединение потеряно. Подключись заново.")
         return (active.openChannel("sftp") as ChannelSftp).also { it.connect(10000) }
+    }
+
+    internal fun verifyMountedStorage(path: String) {
+        val active = session ?: throw IllegalStateException("SSH-сессия не открыта.")
+        val quoted = path.replace("'", "'\\''")
+        val command = "p='$quoted'; awk -v p=\\"$p\\" '$2 != \\"/\\" && $2 != \\"/rom\\" && $2 != \\"/overlay\\" && $2 != \\"/tmp\\" && (p == $2 || index(p, $2 \\"/\\") == 1) { if (length($2) > best) { best=length($2); dev=$1; mount=$2 } } END { if (best == 0) exit 2; print dev \\" \\" mount }' /proc/mounts"
+        val channel = active.openChannel("exec") as ChannelExec
+        channel.setCommand(command)
+        val input = channel.inputStream
+        val output = ByteArrayOutputStream()
+        try {
+            channel.connect(10000)
+            val buffer = ByteArray(1024)
+            val deadline = System.currentTimeMillis() + 8000L
+            while (!channel.isClosed && System.currentTimeMillis() < deadline) {
+                while (input.available() > 0) {
+                    val count = input.read(buffer)
+                    if (count > 0) output.write(buffer, 0, count)
+                }
+                Thread.sleep(30)
+            }
+            while (input.available() > 0) {
+                val count = input.read(buffer)
+                if (count > 0) output.write(buffer, 0, count)
+            }
+            if (!channel.isClosed || channel.exitStatus != 0) {
+                throw IllegalStateException("Не подтверждено подключение внешнего SSD для пути $path. Проверь, что диск смонтирован в OpenWrt.")
+            }
+            if (output.toString(Charsets.UTF_8.name()).trim().isBlank()) {
+                throw IllegalStateException("Не удалось определить точку монтирования SSD.")
+            }
+        } finally { runCatching { channel.disconnect() } }
     }
 
     internal fun listRemote(path: String): List<RemoteSyncEntry> {

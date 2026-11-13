@@ -426,6 +426,7 @@ private fun LogsScreen(result: JSONObject?) {
 @Composable
 private fun GaugeCard(title: String, value: String, progress: Float, caption: String,
                       modifier: Modifier = Modifier, accent: androidx.compose.ui.graphics.Color) {
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant
     ElevatedCard(modifier, colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -433,7 +434,7 @@ private fun GaugeCard(title: String, value: String, progress: Float, caption: St
             Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
                 androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
                     val stroke = 10.dp.toPx()
-                    drawArc(color = MaterialTheme.colorScheme.surfaceVariant, startAngle = -90f, sweepAngle = 360f,
+                    drawArc(color = trackColor, startAngle = -90f, sweepAngle = 360f,
                         useCenter = false, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
                     drawArc(color = accent, startAngle = -90f, sweepAngle = 360f * progress.coerceIn(0f, 1f),
                         useCenter = false, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))

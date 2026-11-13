@@ -1,2 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources><color name="routerdash_icon_bg">#171B22</color></resources>
+<resources>
+    <color name="routerdash_icon_bg">#101A2B</color>
+</resources>

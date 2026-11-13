@@ -367,7 +367,7 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                     when (selected) {
                         Screen.OVERVIEW -> OverviewScreen(snapshot)
                         Screen.NETWORK -> NetworkScreen(snapshot.network, snapshot.wireless)
-                        Screen.DEVICES -> DevicesScreen(snapshot.devices)
+                        Screen.DEVICES -> DevicesScreen(snapshot.devices, snapshot.wireless)
                         Screen.STORAGE -> StorageScreen(snapshot.storage) { refresh(Screen.STORAGE) }
                         Screen.SERVICES -> ServicesScreen(snapshot.services, api) { refresh(Screen.SERVICES) }
                         Screen.LOGS -> LogsScreen(snapshot.logs)
@@ -665,11 +665,14 @@ private fun NetworkScreen(result: JSONObject?, wireless: JSONObject?) {
 }
 
 @Composable
-private fun DevicesScreen(result: JSONObject?) {
+private fun DevicesScreen(result: JSONObject?, wireless: JSONObject?) {
     val leases = result?.optJSONArray("dhcp_leases")
     val arp = result?.optJSONArray("arp_entries")
-    data class Device(val ip: String, val mac: String, val hostname: String, val source: String, val expires: String)
-    val devices = remember(result) {
+    data class Device(
+        val ip: String, val mac: String, val hostname: String, val source: String,
+        val expires: String, val signal: String = "", val connected: String = ""
+    )
+    val devices = remember(result, wireless) {
         val merged = linkedMapOf<String, Device>()
         if (leases != null) for (i in 0 until leases.length()) {
             val item = leases.optJSONObject(i) ?: continue
@@ -686,7 +689,30 @@ private fun DevicesScreen(result: JSONObject?) {
             if (key.isNotBlank() && !merged.containsKey(key))
                 merged[key] = Device(ip, mac, "Неизвестное устройство", "ARP", "—")
         }
-        merged.values.sortedWith(compareBy<Device> { it.hostname == "Неизвестное устройство" }.thenBy { it.hostname })
+        wireless?.keys()?.asSequence()?.forEach { radioKey ->
+            val radio = wireless.optJSONObject(radioKey) ?: return@forEach
+            val interfaces = radio.optJSONArray("interfaces") ?: return@forEach
+            for (interfaceIndex in 0 until interfaces.length()) {
+                val iface = interfaces.optJSONObject(interfaceIndex) ?: continue
+                val stations = iface.optJSONArray("associations") ?: continue
+                for (stationIndex in 0 until stations.length()) {
+                    val station = stations.optJSONObject(stationIndex) ?: continue
+                    val mac = station.optString("mac").uppercase()
+                    if (mac.isBlank()) continue
+                    val existing = merged[mac]
+                    val signal = if (station.has("signal")) "${station.optInt("signal")} dBm" else ""
+                    val connectedSeconds = station.optLong("connected_time", -1L)
+                    val connected = if (connectedSeconds >= 0L) duration(connectedSeconds) else ""
+                    merged[mac] = if (existing != null) existing.copy(
+                        source = (existing.source.split(" · ") + "Wi-Fi").distinct().joinToString(" · "),
+                        signal = signal, connected = connected
+                    ) else Device("", mac, "Wi-Fi клиент", "Wi-Fi", "—", signal, connected)
+                }
+            }
+        }
+        merged.values.sortedWith(compareBy<Device> {
+            it.hostname == "Неизвестное устройство" || it.hostname == "Wi-Fi клиент"
+        }.thenBy { it.hostname })
     }
     LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         item {
@@ -698,20 +724,22 @@ private fun DevicesScreen(result: JSONObject?) {
                         color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelMedium)
                 }
             }
-            Text("DHCP-аренды объединены с ARP-таблицей; дубликаты по MAC скрыты.",
+            Text("DHCP, ARP и подключённые Wi-Fi-клиенты объединены по MAC-адресу.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (result == null) item { EmptyState("Не удалось получить список устройств.") }
-        else if (devices.isEmpty()) item { EmptyState("Активных DHCP-аренд и ARP-записей нет.") }
+        else if (devices.isEmpty()) item { EmptyState("Активных DHCP-, ARP- и Wi-Fi-записей нет.") }
         else items(devices, key = { it.mac.ifBlank { it.ip } }) { device ->
             InfoCard(device.hostname) {
                 InfoLine("IP-адрес", device.ip.ifBlank { "—" })
                 InfoLine("MAC-адрес", device.mac.ifBlank { "—" })
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(device.source, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-                    if (device.source == "DHCP") Text("Аренда: ${device.expires}",
+                    if (device.expires != "—") Text("Аренда: ${device.expires}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 }
+                if (device.signal.isNotBlank()) InfoLine("Wi-Fi сигнал", device.signal)
+                if (device.connected.isNotBlank()) InfoLine("В сети", device.connected)
             }
         }
     }

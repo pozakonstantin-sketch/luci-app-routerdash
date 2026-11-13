@@ -15,6 +15,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -596,9 +599,11 @@ private fun OverviewScreen(s: Snapshot) {
     val model = board?.optString("model", "OpenWrt") ?: "OpenWrt"
     val hostname = board?.optString("hostname", "RouterDash") ?: "RouterDash"
 
-    LazyColumn(contentPadding = PaddingValues(top = 10.dp, bottom = 20.dp),
+    LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 360.dp),
+        contentPadding = PaddingValues(top = 10.dp, bottom = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = MaterialTheme.shapes.extraLarge,
                     color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(52.dp)) {

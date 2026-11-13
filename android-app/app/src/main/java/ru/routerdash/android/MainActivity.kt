@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -45,7 +46,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { RouterDashApp(onEnableBiometric = { enableBiometricLock() }) }
+        setContent { RouterDashApp(onEnableBiometric = { onEnabled -> enableBiometricLock(onEnabled) }) }
     }
 
     override fun onStart() {
@@ -60,7 +61,7 @@ class MainActivity : FragmentActivity() {
         if (securityPrefs.getBoolean("biometric_enabled", false)) shouldAuthenticate = true
     }
 
-    private fun enableBiometricLock() {
+    private fun enableBiometricLock(onEnabled: () -> Unit) {
         val manager = BiometricManager.from(this)
         val status = manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
         if (status != BiometricManager.BIOMETRIC_SUCCESS) {
@@ -79,6 +80,7 @@ class MainActivity : FragmentActivity() {
             onSuccess = {
                 securityPrefs.edit().putBoolean("biometric_enabled", true).apply()
                 shouldAuthenticate = false
+                onEnabled()
                 android.widget.Toast.makeText(this, "Защита отпечатком включена", android.widget.Toast.LENGTH_SHORT).show()
             }
         )
@@ -144,7 +146,7 @@ private data class Snapshot(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RouterDashApp(onEnableBiometric: () -> Unit) {
+private fun RouterDashApp(onEnableBiometric: (() -> Unit) -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("routerdash", 0) }
     val scope = rememberCoroutineScope()
@@ -393,9 +395,12 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                             },
                             biometricEnabled = biometricEnabled,
                             onBiometricToggle = { enabled ->
-                                if (enabled) onEnableBiometric()
-                                else context.getSharedPreferences("routerdash_security", 0).edit().putBoolean("biometric_enabled", false).apply()
-                                biometricEnabled = enabled
+                                if (enabled) {
+                                    onEnableBiometric { biometricEnabled = true }
+                                } else {
+                                    context.getSharedPreferences("routerdash_security", 0).edit().putBoolean("biometric_enabled", false).apply()
+                                    biometricEnabled = false
+                                }
                             },
                             onDisconnect = { connected = false; api = null; selected = Screen.OVERVIEW }
                         )
@@ -967,7 +972,7 @@ private fun PackagesScreen(result: JSONObject?, onRefresh: () -> Unit) {
         if (result == null) item { EmptyState("Не удалось получить список пакетов. Проверь доступ rpc-sys.packagelist.") }
         else if (filtered.isEmpty()) item { EmptyState("Пакеты не найдены.") }
         else items(filtered, key = { it.first }) { (name, version) ->
-            ElevatedCard(Modifier.fillMaxWidth(), onClick = { expandedPackage = if (expandedPackage == name) "" else name }) {
+            ElevatedCard(onClick = { expandedPackage = if (expandedPackage == name) "" else name }, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text(name, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)

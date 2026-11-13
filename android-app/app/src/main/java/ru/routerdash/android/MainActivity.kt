@@ -874,26 +874,36 @@ private fun NetworkInformationCard(s: Snapshot) {
 
 @Composable
 private fun Speedometer(title: String, value: String, progress: Float, accent: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
-    val trackColor = MaterialTheme.colorScheme.surfaceVariant
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)
+    val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = androidx.compose.animation.core.tween(700),
+        label = "speed-$title"
+    )
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.BottomCenter) {
+        Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.fillMaxWidth().height(78.dp), contentAlignment = Alignment.BottomCenter) {
             androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                val stroke = 10.dp.toPx()
+                val stroke = 8.dp.toPx()
                 val diameter = (size.width - stroke).coerceAtLeast(1f)
                 val top = size.height - diameter / 2f - stroke / 2f
                 val arcSize = androidx.compose.ui.geometry.Size(diameter, diameter)
                 val left = (size.width - diameter) / 2f
-                drawArc(trackColor, 180f, 180f, false, androidx.compose.ui.geometry.Offset(left, top), arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
-                drawArc(accent, 180f, 180f * progress.coerceIn(0f, 1f), false, androidx.compose.ui.geometry.Offset(left, top), arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
-                val angle = Math.PI * (1.0 + progress.coerceIn(0f, 1f).toDouble())
+                drawArc(trackColor, 180f, 180f, false, androidx.compose.ui.geometry.Offset(left, top), arcSize,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                drawArc(brush = androidx.compose.ui.graphics.Brush.linearGradient(listOf(accent.copy(alpha = 0.55f), accent)),
+                    startAngle = 180f, sweepAngle = 180f * animatedProgress, useCenter = false,
+                    topLeft = androidx.compose.ui.geometry.Offset(left, top), size = arcSize,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                val angle = Math.PI * (1.0 + animatedProgress.toDouble())
                 val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height - stroke / 2f)
                 val radius = diameter / 2f - stroke
-                val end = androidx.compose.ui.geometry.Offset(center.x + kotlin.math.cos(angle).toFloat() * radius, center.y + kotlin.math.sin(angle).toFloat() * radius)
+                val end = androidx.compose.ui.geometry.Offset(center.x + kotlin.math.cos(angle).toFloat() * radius,
+                    center.y + kotlin.math.sin(angle).toFloat() * radius)
                 drawLine(accent, center, end, strokeWidth = 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
-                drawCircle(accent, radius = 4.dp.toPx(), center = center)
+                drawCircle(accent, radius = 3.dp.toPx(), center = center)
             }
-            Text(value, Modifier.padding(bottom = 2.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(value, Modifier.padding(bottom = 1.dp), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1182,21 +1192,23 @@ private fun parseProcMounts(output: String): JSONArray {
 }
 
 private fun normalizeLogResponse(response: JSONObject): JSONObject {
-    val source = response.optJSONArray("log") ?: response.optJSONArray("entries")
-        ?: response.optJSONArray("lines") ?: response.optJSONArray("messages")
-    val entries = JSONArray()
-    if (source != null) {
-        for (index in 0 until source.length()) {
-            when (val row = source.opt(index)) {
-                is JSONObject -> entries.put(row)
-                is String -> entries.put(parseLogLine(row))
-            }
-        }
-    } else {
-        val text = response.optString("data", response.optString("output", ""))
-        if (text.isNotBlank()) return parseLogReadOutput(text)
-    }
+    val source = findArrayDeep(response, listOf("log", "entries", "lines", "messages", "data"))
+    val entries = normalizeLogRows(source)
+    if (entries.length() > 0) return JSONObject().put("log", entries)
+    val text = response.optString("data", response.optString("output", ""))
+    if (text.isNotBlank()) return parseLogReadOutput(text)
     return JSONObject().put("log", entries)
+}
+
+private fun normalizeLogRows(source: JSONArray): JSONArray {
+    val entries = JSONArray()
+    for (index in 0 until source.length()) {
+        when (val row = source.opt(index)) {
+            is JSONObject -> entries.put(row)
+            is String -> entries.put(parseLogLine(row))
+        }
+    }
+    return entries
 }
 
 private fun parseLogReadOutput(output: String): JSONObject {
@@ -1602,23 +1614,31 @@ private fun LogsScreen(result: JSONObject?, loadError: String?) {
 @Composable
 private fun GaugeCard(title: String, value: String, progress: Float, caption: String,
                       modifier: Modifier = Modifier, accent: androidx.compose.ui.graphics.Color) {
-    val trackColor = MaterialTheme.colorScheme.surfaceVariant
-    ElevatedCard(modifier, colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+    val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 850),
+        label = "gauge-$title"
+    )
+    ElevatedCard(modifier, shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(10.dp))
-            Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(82.dp), contentAlignment = Alignment.Center) {
                 androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                    val stroke = 10.dp.toPx()
-                    drawArc(color = trackColor, startAngle = -90f, sweepAngle = 360f,
-                        useCenter = false, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
-                    drawArc(color = accent, startAngle = -90f, sweepAngle = 360f * progress.coerceIn(0f, 1f),
-                        useCenter = false, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                    val stroke = 9.dp.toPx()
+                    drawArc(color = trackColor, startAngle = -90f, sweepAngle = 360f, useCenter = false,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                    drawArc(brush = androidx.compose.ui.graphics.Brush.sweepGradient(
+                        listOf(accent.copy(alpha = 0.55f), accent, accent.copy(alpha = 0.85f))),
+                        startAngle = -90f, sweepAngle = 360f * animatedProgress, useCenter = false,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
                 }
                 Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
-            Spacer(Modifier.height(8.dp))
-            Text(caption, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(caption, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         }
     }
 }
@@ -1676,9 +1696,11 @@ private fun MetricCard(title: String, value: String, modifier: Modifier = Modifi
 
 @Composable
 private fun InfoCard(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    ElevatedCard(modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    ElevatedCard(modifier.fillMaxWidth(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             content()
         }
     }

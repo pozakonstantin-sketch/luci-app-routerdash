@@ -1480,8 +1480,15 @@ private fun saveRouterDashWidgetSnapshot(context: android.content.Context, snaps
     val info = snapshot.info
     val memory = info?.optJSONObject("memory")
     val total = memory?.optLong("total") ?: 0L
-    val available = memory?.optLong("available") ?: 0L
-    val ramPercent = if (total > 0L) (((total - available).coerceAtLeast(0L) * 100L) / total).toInt() else -1
+    // OpenWrt system.info normally reports free/buffered/cached rather than "available".
+    // Prefer an explicit available value when present, otherwise estimate reclaimable RAM.
+    val explicitAvailable = memory?.optLong("available", -1L) ?: -1L
+    val available = if (explicitAvailable >= 0L) explicitAvailable else {
+        (memory?.optLong("free") ?: 0L) +
+            (memory?.optLong("buffered") ?: 0L) +
+            (memory?.optLong("cached") ?: 0L)
+    }
+    val ramPercent = if (total > 0L) (((total - available).coerceAtLeast(0L) * 100L) / total).coerceIn(0L, 100L).toInt() else -1
     val board = snapshot.board
     context.getSharedPreferences("routerdash_widget_cache", 0).edit()
         .putBoolean("online", true)

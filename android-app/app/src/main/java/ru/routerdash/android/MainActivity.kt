@@ -208,7 +208,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 client.execReadOnly("sh", listOf("-c",
                                     "echo VPN_PROCESSES; ps | grep -E \"tailscale|sing-box|xray|openvpn|wireguard\" | grep -v grep; " +
                                     "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 10; fi; " +
-                                    "echo TUNNEL_INTERFACES; ip -o addr 2>/dev/null | grep -E \"tailscale|tun|wg|sing\""))
+                                    "echo TUNNEL_INTERFACES; ip -o addr 2>/dev/null | grep -E \"tailscale|tun|wg|sing\" || true; echo VPN_PROCESS_STATS; top -bn1 2>/dev/null | head -n 25"))
                             }.getOrDefault("Не удалось получить состояние VPN")
                         )
                         Screen.NETWORK -> {
@@ -300,8 +300,8 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.VPN -> snapshot.copy(vpnStatus = client.execReadOnly("sh", listOf("-c",
                             "echo VPN_PROCESSES; ps | grep -E \"tailscale|sing-box|xray|openvpn|wireguard\" | grep -v grep; " +
                             "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 30; fi; " +
-                            "echo TUNNEL_INTERFACES; ip -o addr 2>/dev/null | grep -E \"tailscale|tun|wg|sing\"; " +
-                            "echo ROUTES; ip route 2>/dev/null | head -n 15")))
+                            "echo TUNNEL_INTERFACES; ip -o addr 2>/dev/null | grep -E \"tailscale|tun|wg|sing\" || true; " +
+                            "echo VPN_PROCESS_STATS; top -bn1 2>/dev/null | head -n 25; echo ROUTES; ip route 2>/dev/null | head -n 15")))
                         Screen.SERVICES -> snapshot.copy(
                             services = client.call("rc", "list"),
                             processes = runCatching { client.execReadOnly("top", listOf("-bn1")) }.getOrDefault("") +

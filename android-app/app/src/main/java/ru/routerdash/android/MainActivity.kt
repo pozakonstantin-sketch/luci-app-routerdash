@@ -129,7 +129,7 @@ private enum class Screen(val title: String) {
 private data class TrafficPoint(val rx: Long, val tx: Long)
 private data class Snapshot(
     val board: JSONObject? = null, val info: JSONObject? = null,
-    val network: JSONObject? = null, val devices: JSONObject? = null,
+    val network: JSONObject? = null, val wireless: JSONObject? = null, val devices: JSONObject? = null,
     val services: JSONObject? = null, val logs: JSONObject? = null,
     val cpuRaw: String? = null, val networkDevices: JSONObject? = null,
     val cpuPercent: Int? = null, val rxRate: Long? = null, val txRate: Long? = null,
@@ -177,10 +177,10 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                             cpuRaw = readUbusFile(client, "/proc/stat"),
                             networkDevices = client.call("luci-rpc", "getNetworkDevices")
                         )
-                        Screen.NETWORK -> snapshot.copy(network = client.call("network.interface", "dump"))
+                        Screen.NETWORK -> snapshot.copy(network = client.call("network.interface", "dump"), wireless = client.call("luci-rpc", "getWirelessDevices"))
                         Screen.DEVICES -> snapshot.copy(devices = client.call("luci-rpc", "getDHCPLeases"))
                         Screen.SERVICES -> snapshot.copy(services = client.call("rc", "list"))
-                        Screen.LOGS -> snapshot.copy(logs = client.call("log", "read", JSONObject().put("lines", 100)))
+                        Screen.LOGS -> snapshot.copy(logs = client.call("log", "read", JSONObject().put("lines", 300).put("stream", false).put("oneshot", true)))
                     }
                 }
                 if (screen == Screen.OVERVIEW) {
@@ -315,7 +315,7 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                                 selected = selected == screen,
                                 onClick = { selected = screen; refresh(screen) },
                                 icon = { Icon(icon, contentDescription = screen.title) },
-                                label = { Text(screen.title) }
+                                label = { Text(screen.title, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall) }
                             )
                         }
                     }
@@ -329,7 +329,7 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                     }
                     when (selected) {
                         Screen.OVERVIEW -> OverviewScreen(snapshot)
-                        Screen.NETWORK -> NetworkScreen(snapshot.network)
+                        Screen.NETWORK -> NetworkScreen(snapshot.network, snapshot.wireless)
                         Screen.DEVICES -> DevicesScreen(snapshot.devices)
                         Screen.SERVICES -> ServicesScreen(snapshot.services)
                         Screen.LOGS -> LogsScreen(snapshot.logs)
@@ -561,8 +561,9 @@ private fun NetworkInformationCard(s: Snapshot) {
 }
 
 @Composable
-private fun NetworkScreen(result: JSONObject?) {
+private fun NetworkScreen(result: JSONObject?, wireless: JSONObject?) {
     val list = result?.optJSONArray("interface")
+    val radios = wireless?.keys()?.asSequence()?.mapNotNull { key -> wireless.optJSONObject(key)?.let { key to it } }?.toList() ?: emptyList()
     LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Сетевые интерфейсы", style = MaterialTheme.typography.headlineSmall) }
         if (list == null || list.length() == 0) item { EmptyState("Нет данных о сетевых интерфейсах") }
@@ -823,19 +824,20 @@ private class RouterApi(val baseUrl: String) {
 }
 
 private fun readUbusFile(api: RouterApi, path: String): String? {
+    val response = api.call("file", "read", JSONObject().put("path", path))
+    val encoded = response.optString("data")
+    if (encoded.isBlank() || encoded == "null") return null
     return runCatching {
-        val response = api.call("file", "read", JSONObject().put("path", path))
-        val encoded = response.optString("data")
-        if (encoded.isBlank()) null else String(android.util.Base64.decode(encoded, android.util.Base64.DEFAULT))
-    }.getOrNull()
+        String(android.util.Base64.decode(encoded, android.util.Base64.DEFAULT), Charsets.UTF_8)
+    }.getOrElse { encoded }
 }
 
 private fun parseCpuTicks(raw: String?): LongArray? {
     val line = raw?.lineSequence()?.firstOrNull { it.startsWith("cpu ") } ?: return null
     val values = line.trim().split(Regex("\\s+")).drop(1).mapNotNull { it.toLongOrNull() }
     if (values.size < 5) return null
-    val total = values.take(8).sum()
-    val idle = values[3] + values[4]
+    val total = values.sum()
+    val idle = values[3] + (values.getOrNull(4) ?: 0L)
     return longArrayOf(total, idle)
 }
 

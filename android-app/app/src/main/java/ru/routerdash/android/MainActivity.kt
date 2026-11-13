@@ -210,9 +210,9 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             snapshot.copy(network = ifaceDump, wireless = radios)
                         }
                         Screen.DEVICES -> {
-                            val leases = client.call("luci-rpc", "getDHCPLeases")
+                            val leases = runCatching { client.call("luci-rpc", "getDHCPLeases") }.getOrDefault(JSONObject())
                             val leaseArray = findArray(leases, listOf("dhcp_leases", "leases", "results", "entries"))
-                            val arpRaw = readUbusFile(client, "/proc/net/arp").orEmpty()
+                            val arpRaw = runCatching { readUbusFile(client, "/proc/net/arp") }.getOrNull().orEmpty()
                             val arp = JSONArray()
                             arpRaw.lineSequence().drop(1).forEach { row ->
                                 val fields = row.trim().split(Regex("\\s+"))
@@ -226,7 +226,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         }
                         Screen.STORAGE -> {
                             val mounts = runCatching { client.callArray("luci", "getMountPoints") }.getOrElse {
-                                parseDfOutput(client.execReadOnly("df", listOf("-kP")))
+                                runCatching { parseDfOutput(client.execReadOnly("df", listOf("-kP"))) }.getOrDefault(JSONArray())
                             }
                             snapshot.copy(storage = mounts)
                         }
@@ -235,11 +235,12 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.SERVICES -> snapshot.copy(
                             services = client.call("rc", "list"),
                             processes = runCatching { client.execReadOnly("top", listOf("-bn1")) }
-                                .getOrElse { client.execReadOnly("ps", listOf("w")) }
+                                .getOrElse { runCatching { client.execReadOnly("ps", listOf("w")) }.getOrDefault("") }
                         )
                         Screen.LOGS -> {
                             val logs = runCatching { client.call("log", "read", JSONObject().put("lines", 300)) }.getOrElse {
-                                parseLogReadOutput(client.execReadOnly("logread", listOf("-l", "300")))
+                                runCatching { parseLogReadOutput(client.execReadOnly("logread", listOf("-l", "300"))) }
+                                    .getOrDefault(JSONObject().put("log", JSONArray()))
                             }
                             snapshot.copy(logs = logs)
                         }

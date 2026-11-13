@@ -448,6 +448,8 @@ private fun GaugeCard(title: String, value: String, progress: Float, caption: St
 
 @Composable
 private fun TrafficCard(history: List<TrafficPoint>, rx: Long?, tx: Long?) {
+    val rxColor = MaterialTheme.colorScheme.secondary
+    val txColor = MaterialTheme.colorScheme.primary
     InfoCard("Интернет · WAN (eth1)") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
@@ -476,8 +478,8 @@ private fun TrafficCard(history: List<TrafficPoint>, rx: Long?, tx: Long?) {
                 }
                 drawPath(path, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
             }
-            drawSeries({ it.rx }, MaterialTheme.colorScheme.secondary)
-            drawSeries({ it.tx }, MaterialTheme.colorScheme.primary)
+            drawSeries({ it.rx }, rxColor)
+            drawSeries({ it.tx }, txColor)
         }
         Text(if (history.size < 2) "График появится после второго замера" else "Скорость по интервалам опроса · 5 секунд",
             color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
@@ -599,7 +601,7 @@ private fun parseCpuTicks(raw: String?): LongArray? {
     val line = raw?.lineSequence()?.firstOrNull { it.startsWith("cpu ") } ?: return null
     val values = line.trim().split(Regex("\\s+")).drop(1).mapNotNull { it.toLongOrNull() }
     if (values.size < 5) return null
-    val total = values.sum()
+    val total = values.take(8).sum()
     val idle = values[3] + values[4]
     return longArrayOf(total, idle)
 }

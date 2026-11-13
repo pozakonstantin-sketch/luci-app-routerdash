@@ -207,7 +207,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             vpnStatus = runCatching {
                                 client.execReadOnly("sh", listOf("-c",
                                     "echo VPN_PROCESSES; ps | grep -E \"tailscale|sing-box|xray|openvpn|wireguard\" | grep -v grep; " +
-                                    "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 10; fi; " +
+                                    "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 10; echo TAILSCALE_IP; tailscale ip -4 2>&1; fi; echo SING_BOX_VERSION; sing-box version 2>&1 | head -n 2; " +
                                     "echo TUNNEL_INTERFACES; ip -o addr 2>/dev/null | grep -E \"tailscale|tun|wg|sing\" || true; echo VPN_PROCESS_STATS; top -bn1 2>/dev/null | head -n 25"))
                             }.getOrDefault("Не удалось получить состояние VPN")
                         )
@@ -291,7 +291,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             val diagnostic = if (mounts.length() == 0)
                                 failures.joinToString("\n").ifBlank { "Роутер не вернул список файловых систем." }
                             else null
-                            val diskDetails = runCatching { client.execReadOnly("sh", listOf("-c", "echo BLOCK_DEVICES; ls /sys/block; echo BLOCK_SIZES_SECTORS; cat /sys/block/*/size 2>/dev/null; echo DISK_STATS; cat /proc/diskstats; echo MOUNTS; grep -E \"/mnt|/overlay|/rom\" /proc/mounts; echo DF; df -h")) }.getOrDefault("Диагностика дисков недоступна")
+                            val diskDetails = runCatching { client.execReadOnly("sh", listOf("-c", "echo BLOCK_INFO; block info 2>/dev/null; echo BLOCK_DEVICES; ls /sys/block; echo BLOCK_SIZES_SECTORS; cat /sys/block/*/size 2>/dev/null; echo DISK_STATS; cat /proc/diskstats; echo MOUNTS; grep -E \"/mnt|/overlay|/rom\" /proc/mounts; echo DF; df -h")) }.getOrDefault("Диагностика дисков недоступна")
                             snapshot.copy(storage = mounts, storageError = diagnostic, diskDetails = diskDetails)
                         }
                         Screen.PACKAGES -> snapshot.copy(packages = client.call("rpc-sys", "packagelist"))
@@ -299,7 +299,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         Screen.FIREWALL -> snapshot.copy(firewallRules = runCatching { client.execReadOnly("sh", listOf("-c", "echo UCI_FIREWALL; uci show firewall 2>/dev/null; echo NFT_RULESET; nft list ruleset 2>/dev/null | head -n 260")) }.getOrDefault("Не удалось прочитать правила firewall"))
                         Screen.VPN -> snapshot.copy(vpnStatus = client.execReadOnly("sh", listOf("-c",
                             "echo VPN_PROCESSES; ps | grep -E \"tailscale|sing-box|xray|openvpn|wireguard\" | grep -v grep; " +
-                            "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 30; fi; " +
+                            "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 30; echo TAILSCALE_IP; tailscale ip -4 2>&1; fi; echo SING_BOX_VERSION; sing-box version 2>&1 | head -n 2; " +
                             "echo TUNNEL_INTERFACES; ip -o addr 2>/dev/null | grep -E \"tailscale|tun|wg|sing\" || true; " +
                             "echo VPN_PROCESS_STATS; top -bn1 2>/dev/null | head -n 25; echo ROUTES; ip route 2>/dev/null | head -n 15")))
                         Screen.SERVICES -> snapshot.copy(

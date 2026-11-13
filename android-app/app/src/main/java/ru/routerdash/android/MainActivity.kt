@@ -1897,6 +1897,63 @@ private fun EmptyState(message: String) {
     Text(message, Modifier.fillMaxWidth().padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
+private class SshTerminal {
+    private var session: Session? = null
+    private var channel: ChannelShell? = null
+    private var input: InputStream? = null
+    private var output: OutputStream? = null
+
+    fun connect(host: String, port: Int, username: String, password: String) {
+        val jsch = JSch()
+        val ssh = jsch.getSession(username, host, port)
+        ssh.setPassword(password)
+        val config = java.util.Properties().apply {
+            put("StrictHostKeyChecking", "no")
+            put("PreferredAuthentications", "password,keyboard-interactive")
+        }
+        ssh.setConfig(config)
+        ssh.timeout = 10000
+        ssh.connect(10000)
+        val shell = ssh.openChannel("shell") as ChannelShell
+        shell.setPtyType("xterm", 100, 30, 1000, 700)
+        val shellInput = shell.inputStream
+        val shellOutput = shell.outputStream
+        shell.connect(10000)
+        session = ssh
+        channel = shell
+        input = shellInput
+        output = shellOutput
+    }
+
+    @Synchronized
+    fun send(command: String) {
+        val stream = output ?: throw IllegalStateException("SSH-сессия не открыта")
+        stream.write((command + "\n").toByteArray(Charsets.UTF_8))
+        stream.flush()
+    }
+
+    @Synchronized
+    fun readAvailable(): String {
+        val stream = input ?: return ""
+        if (channel?.isConnected != true) return ""
+        val available = stream.available()
+        if (available <= 0) return ""
+        val buffer = ByteArray(minOf(available, 8192))
+        val count = stream.read(buffer)
+        return if (count > 0) String(buffer, 0, count, Charsets.UTF_8) else ""
+    }
+
+    @Synchronized
+    fun close() {
+        runCatching { channel?.disconnect() }
+        runCatching { session?.disconnect() }
+        input = null
+        output = null
+        channel = null
+        session = null
+    }
+}
+
 private class RouterApi(val baseUrl: String) {
     private val http = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS)

@@ -649,102 +649,129 @@ private fun OverviewScreen(s: Snapshot) {
     val available = mem?.optLong("available", -1L)?.takeIf { it >= 0L }
         ?: ((mem?.optLong("free") ?: 0L) + (mem?.optLong("buffered") ?: 0L) + (mem?.optLong("cached") ?: 0L))
     val used = (total - available).coerceAtLeast(0L)
-    val ramPercent = if (total > 0) (used.toFloat() / total).coerceIn(0f, 1f) else 0f
-    val load = info?.optJSONArray("load")?.optLong(0)?.let { String.format("%.2f", it / 1000.0) } ?: "—"
+    val ramPercent = if (total > 0L) (used.toFloat() / total).coerceIn(0f, 1f) else 0f
     val uptime = info?.optLong("uptime")?.let { duration(it) } ?: "—"
-    val model = board?.optString("model", "OpenWrt") ?: "OpenWrt"
-    val hostname = board?.optString("hostname", "RouterDash") ?: "RouterDash"
+    val load = info?.optJSONArray("load")?.optLong(0)?.let { String.format("%.2f", it / 1000.0) } ?: "—"
+    val hostname = board?.optString("hostname", "OpenWrt")?.ifBlank { "OpenWrt" } ?: "OpenWrt"
+    val model = board?.optString("model", "Маршрутизатор")?.ifBlank { "Маршрутизатор" } ?: "Маршрутизатор"
+    val cpu = s.cpuPercent
+    val ramLabel = if (total > 0L) "${(ramPercent * 100).toInt()}%" else "—"
+    val health = when {
+        cpu == null || total <= 0L -> "Собираем показатели"
+        cpu >= 85 || ramPercent >= 0.90f -> "Нужна проверка"
+        else -> "Система работает нормально"
+    }
+    val healthColor = if (health == "Нужна проверка")
+        androidx.compose.ui.graphics.Color(0xFFFFB454)
+    else androidx.compose.ui.graphics.Color(0xFF42D9A0)
 
-    LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 360.dp),
-        contentPadding = PaddingValues(top = 10.dp, bottom = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 220.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(52.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.Router, contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(27.dp))
-                    }
-                }
-                Spacer(Modifier.width(13.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Панель управления", style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(hostname, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(model, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Icon(Icons.Outlined.NotificationsNone, contentDescription = "Уведомления",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(25.dp))
-            }
+            RouterStatusHero(hostname, model, health, healthColor, uptime)
         }
         item {
-            InfoCard("CPU Usage") {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        s.cpuPercent?.let { "$it%" } ?: "Ожидание замера",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1
-                    )
-                    Text(
-                        "Загрузка процессора",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                CpuHistoryChart(s.cpuHistory)
-                Text(if (s.cpuHistory.isEmpty()) "Ожидаем данные процессора · опрос каждые 5 секунд" else "Общая загрузка CPU · обновление каждые 5 секунд",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall)
-            }
+            GaugeCard("Процессор", cpu?.let { "$it%" } ?: "—",
+                (cpu ?: 0) / 100f, "Загрузка CPU",
+                accent = androidx.compose.ui.graphics.Color(0xFFFF9A52))
         }
-        item { NetworkInformationCard(s) }
         item {
-            InfoCard("Internal Storage · RAM") {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column {
-                        Text("Используется", color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall)
-                        Text(if (total > 0) formatBytes(used) else "—",
-                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("Всего", color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall)
-                        Text(if (total > 0) formatBytes(total) else "—",
-                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    }
+            GaugeCard("Оперативная память", ramLabel, ramPercent,
+                if (total > 0L) "Свободно ${formatBytes(available)}" else "Данные недоступны",
+                accent = androidx.compose.ui.graphics.Color(0xFF4FBEFF))
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            NetworkInformationCard(s)
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            InfoCard("Система и прошивка") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CompactSystemMetric("Аптайм", uptime, Modifier.weight(1f))
+                    CompactSystemMetric("Load average", load, Modifier.weight(1f))
+                    CompactSystemMetric("OpenWrt", board?.optJSONObject("release")?.optString("version", "—") ?: "—",
+                        Modifier.weight(1f))
                 }
-                if (total > 0) {
-                    LinearProgressIndicator(progress = { ramPercent }, Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant)
-                    Text("Доступно: ${formatBytes(available)} · ${(ramPercent * 100).toInt()}% занято",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CompactSystemMetric("Ядро", board?.optString("kernel", "—") ?: "—", Modifier.weight(1f))
+                    CompactSystemMetric("Архитектура", board?.optString("system", "—") ?: "—", Modifier.weight(1f))
                 }
             }
         }
-        item {
-            InfoCard("System Information") {
-                InfoLine("Load average · 1 мин", load)
-                InfoLine("Время работы", uptime)
-                InfoLine("OpenWrt", board?.optJSONObject("release")?.optString("version", "—") ?: "—")
-                InfoLine("Ядро", board?.optString("kernel", "—") ?: "—")
-                InfoLine("Архитектура", board?.optString("system", "—") ?: "—")
-            }
-        }
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             StatusRecommendationsCard(
-                cpuPercent = s.cpuPercent,
+                cpuPercent = cpu,
                 ramPercent = if (total > 0L) (ramPercent * 100f).toInt() else null,
                 availableRam = available.takeIf { total > 0L }
             )
         }
+    }
+}
+
+@Composable
+private fun RouterStatusHero(
+    hostname: String, model: String, status: String,
+    statusColor: androidx.compose.ui.graphics.Color, uptime: String
+) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+    Row(
+        Modifier.fillMaxWidth()
+            .background(
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    listOf(
+                        androidx.compose.ui.graphics.Color(0xFF263F59),
+                        androidx.compose.ui.graphics.Color(0xFF25334B),
+                        androidx.compose.ui.graphics.Color(0xFF3C2E55)
+                    )
+                ), shape
+            )
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f),
+            modifier = Modifier.size(46.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Router, contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(26.dp))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(hostname, style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, maxLines = 1)
+            Text(model, style = MaterialTheme.typography.labelMedium,
+                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.72f), maxLines = 1)
+            Text("Маршрутизатор · OpenWrt", style = MaterialTheme.typography.labelSmall,
+                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.58f))
+        }
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+                color = statusColor.copy(alpha = 0.18f)) {
+                Row(Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Box(Modifier.size(7.dp).background(statusColor,
+                        androidx.compose.foundation.shape.CircleShape))
+                    Text(status, color = statusColor, style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold, maxLines = 1)
+                }
+            }
+            Text("Аптайм $uptime", style = MaterialTheme.typography.labelSmall,
+                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.72f))
+        }
+    }
+}
+
+@Composable
+private fun CompactSystemMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier.padding(vertical = 3.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+            maxLines = 1)
     }
 }
 
@@ -1082,6 +1109,45 @@ private fun findArray(root: JSONObject?, keys: List<String>): JSONArray {
         keys.forEach { name -> nested?.optJSONArray(name)?.let { return it } }
     }
     return JSONArray()
+}
+
+private fun findArrayDeep(root: Any?, keys: List<String>, depth: Int = 0): JSONArray {
+    if (depth > 8 || root == null) return JSONArray()
+    if (root is JSONArray) return root
+    if (root is JSONObject) {
+        keys.forEach { key -> root.optJSONArray(key)?.let { return it } }
+        val iterator = root.keys()
+        while (iterator.hasNext()) {
+            val value = root.opt(iterator.next())
+            val found = findArrayDeep(value, keys, depth + 1)
+            if (found.length() > 0) return found
+        }
+    }
+    return JSONArray()
+}
+
+private fun normalizeMounts(source: JSONArray): JSONArray {
+    val normalized = JSONArray()
+    for (index in 0 until source.length()) {
+        val item = source.optJSONObject(index) ?: continue
+        val device = item.optString("device", item.optString("fs",
+            item.optString("source", item.optString("filesystem", "—"))))
+        val mount = item.optString("mount", item.optString("mountpoint",
+            item.optString("target", item.optString("path", ""))))
+        if (mount.isBlank()) continue
+        val blockSize = item.optLong("block_size", item.optLong("bsize", item.optLong("frsize", 0L)))
+        val blocks = item.optLong("blocks", item.optLong("total_blocks", 0L))
+        val rawSize = item.optLong("size", item.optLong("total", item.optLong("total_bytes", 0L)))
+        val size = if (rawSize > 0L) rawSize else if (blockSize > 0L && blocks > 0L) blockSize * blocks else 0L
+        val rawUsed = item.optLong("used", item.optLong("used_bytes", -1L))
+        val rawAvailable = item.optLong("avail", item.optLong("available",
+            item.optLong("free", item.optLong("free_bytes", -1L))))
+        val used = if (rawUsed >= 0L) rawUsed else if (size > 0L && rawAvailable >= 0L) (size - rawAvailable).coerceAtLeast(0L) else 0L
+        val available = if (rawAvailable >= 0L) rawAvailable else (size - used).coerceAtLeast(0L)
+        normalized.put(JSONObject().put("device", device).put("mount", mount)
+            .put("size", size).put("used", used).put("avail", available))
+    }
+    return normalized
 }
 
 private fun parseDfOutput(output: String): JSONArray {

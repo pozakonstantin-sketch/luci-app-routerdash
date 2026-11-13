@@ -23,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -353,6 +354,9 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
         }
     }
 
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val isExpandedLayout = screenWidthDp >= 600
+
     MaterialTheme(colorScheme = darkColorScheme(
         primary = androidx.compose.ui.graphics.Color(0xFFFF9A52),
         secondary = androidx.compose.ui.graphics.Color(0xFF69C7F0),
@@ -389,34 +393,68 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         }
                     )
                 },
-                bottomBar = {
+                bottomBar = if (!isExpandedLayout) ({
                     NavigationBar {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                        val entries = listOf(
-                            Screen.OVERVIEW to Icons.Outlined.Dashboard,
-                            Screen.NETWORK to Icons.Outlined.Lan,
-                            Screen.DEVICES to Icons.Outlined.Devices,
-                            Screen.STORAGE to Icons.Outlined.Storage,
-                            Screen.PACKAGES to Icons.Outlined.Inventory2,
-                            Screen.DOWNLOADS to Icons.Outlined.Download,
-                            Screen.SERVICES to Icons.Outlined.Settings,
-                            Screen.LOGS to Icons.Outlined.Article,
-                            Screen.SETTINGS to Icons.Outlined.Tune
-                        )
-                        entries.forEach { (screen, icon) ->
-                            NavigationBarItem(
-                                modifier = Modifier.width(76.dp),
-                                selected = selected == screen,
-                                onClick = { selected = screen; refresh(screen) },
-                                icon = { Icon(icon, contentDescription = screen.title) },
-                                label = { Text(screen.title, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall) }
+                            val entries = listOf(
+                                Screen.OVERVIEW to Icons.Outlined.Dashboard,
+                                Screen.NETWORK to Icons.Outlined.Lan,
+                                Screen.DEVICES to Icons.Outlined.Devices,
+                                Screen.STORAGE to Icons.Outlined.Storage,
+                                Screen.PACKAGES to Icons.Outlined.Inventory2,
+                                Screen.DOWNLOADS to Icons.Outlined.Download,
+                                Screen.SERVICES to Icons.Outlined.Settings,
+                                Screen.LOGS to Icons.Outlined.Article,
+                                Screen.SETTINGS to Icons.Outlined.Tune
                             )
-                        }
+                            entries.forEach { (screen, icon) ->
+                                NavigationBarItem(
+                                    modifier = Modifier.width(76.dp),
+                                    selected = selected == screen,
+                                    onClick = { selected = screen; refresh(screen) },
+                                    icon = { Icon(icon, contentDescription = screen.title) },
+                                    label = { Text(screen.title, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
                         }
                     }
-                }
+                }) else null
             ) { padding ->
-                Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
+                Row(Modifier.fillMaxSize().padding(padding)) {
+                    if (isExpandedLayout) {
+                        NavigationRail(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            header = {
+                                Icon(Icons.Outlined.Router, contentDescription = "RouterDash",
+                                    modifier = Modifier.padding(vertical = 12.dp).size(28.dp))
+                            }
+                        ) {
+                            val entries = listOf(
+                                Screen.OVERVIEW to Icons.Outlined.Dashboard,
+                                Screen.NETWORK to Icons.Outlined.Lan,
+                                Screen.DEVICES to Icons.Outlined.Devices,
+                                Screen.STORAGE to Icons.Outlined.Storage,
+                                Screen.PACKAGES to Icons.Outlined.Inventory2,
+                                Screen.DOWNLOADS to Icons.Outlined.Download,
+                                Screen.SERVICES to Icons.Outlined.Settings,
+                                Screen.LOGS to Icons.Outlined.Article,
+                                Screen.SETTINGS to Icons.Outlined.Tune
+                            )
+                            entries.forEach { (screen, icon) ->
+                                NavigationRailItem(
+                                    selected = selected == screen,
+                                    onClick = { selected = screen; refresh(screen) },
+                                    icon = { Icon(icon, contentDescription = screen.title) },
+                                    label = { Text(screen.title, maxLines = 1) },
+                                    alwaysShowLabel = false
+                                )
+                            }
+                        }
+                    }
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight().widthIn(max = 1440.dp)
+                            .padding(horizontal = if (isExpandedLayout) 28.dp else 16.dp)
+                    ) {
                     if (error != null) {
                         ElevatedCard(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                             Text(error!!, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
@@ -448,6 +486,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             },
                             onDisconnect = { connected = false; api = null; selected = Screen.OVERVIEW }
                         )
+                    }
                     }
                 }
             }

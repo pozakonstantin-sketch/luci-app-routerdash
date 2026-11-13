@@ -388,11 +388,7 @@ private fun CpuHistoryChart(history: List<Int>) {
             val y = top + chartHeight * (1f - tick / 100f)
             drawLine(grid, androidx.compose.ui.geometry.Offset(left, y),
                 androidx.compose.ui.geometry.Offset(size.width - right, y), 1.dp.toPx())
-            drawContext.canvas.nativeCanvas.drawText(tick.toString(),
-                0f, y + 4.dp.toPx(), android.graphics.Paint().apply {
-                    color = android.graphics.Color.LTGRAY
-                    textSize = 10.dp.toPx()
-                })
+            // Grid tick; labels are omitted to keep the chart independent of Android Canvas APIs.
         }
         if (history.isEmpty()) return@Canvas
         val path = androidx.compose.ui.graphics.Path()
@@ -436,10 +432,11 @@ private fun NetworkInformationCard(s: Snapshot) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            val trackColor = MaterialTheme.colorScheme.surfaceVariant
             Box(Modifier.size(142.dp), contentAlignment = Alignment.Center) {
                 androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
                     val stroke = 17.dp.toPx()
-                    drawArc(MaterialTheme.colorScheme.surfaceVariant, -90f, 360f, false,
+                    drawArc(trackColor, -90f, 360f, false,
                         style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
                     if (total > 0L) {
                         val rxSweep = 360f * rx.toFloat() / total.toFloat()

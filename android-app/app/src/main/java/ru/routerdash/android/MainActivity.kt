@@ -2,6 +2,7 @@ package ru.routerdash.android
 
 import android.os.Build
 import android.os.Bundle
+import androidx.fragment.app.FragmentActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -36,7 +37,7 @@ import org.json.JSONObject
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private val securityPrefs by lazy { getSharedPreferences("routerdash_security", MODE_PRIVATE) }
     private var shouldAuthenticate = true
     private var promptVisible = false

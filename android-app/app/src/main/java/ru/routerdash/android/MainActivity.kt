@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -444,12 +445,12 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
     val isExpandedLayout = screenWidthDp >= 600
 
     MaterialTheme(colorScheme = darkColorScheme(
-        primary = androidx.compose.ui.graphics.Color(0xFFFF9A52),
-        secondary = androidx.compose.ui.graphics.Color(0xFF69C7F0),
-        tertiary = androidx.compose.ui.graphics.Color(0xFF4FE0B8),
-        background = androidx.compose.ui.graphics.Color(0xFF171B22),
-        surface = androidx.compose.ui.graphics.Color(0xFF222832),
-        surfaceVariant = androidx.compose.ui.graphics.Color(0xFF2B323D),
+        primary = androidx.compose.ui.graphics.Color(0xFFFF784E),
+        secondary = androidx.compose.ui.graphics.Color(0xFF47D7FF),
+        tertiary = androidx.compose.ui.graphics.Color(0xFFA98BFF),
+        background = androidx.compose.ui.graphics.Color(0xFF0C1320),
+        surface = androidx.compose.ui.graphics.Color(0xFF172235),
+        surfaceVariant = androidx.compose.ui.graphics.Color(0xFF21314A),
         onBackground = androidx.compose.ui.graphics.Color(0xFFF4F6F8),
         onSurface = androidx.compose.ui.graphics.Color(0xFFF4F6F8),
         onSurfaceVariant = androidx.compose.ui.graphics.Color(0xFF9AA5B1)
@@ -1986,8 +1987,13 @@ private fun MetricCard(title: String, value: String, modifier: Modifier = Modifi
 
 @Composable
 private fun InfoCard(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    ElevatedCard(modifier.fillMaxWidth(),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+    val edge = androidx.compose.ui.graphics.Brush.linearGradient(
+        listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
+            MaterialTheme.colorScheme.secondary.copy(alpha = 0.28f),
+            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.34f)))
+    ElevatedCard(modifier.fillMaxWidth().border(androidx.compose.foundation.BorderStroke(1.dp, edge), shape),
+        shape = shape,
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)

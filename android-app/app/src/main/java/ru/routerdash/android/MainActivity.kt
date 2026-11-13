@@ -700,6 +700,7 @@ private fun NetworkInformationCard(s: Snapshot) {
 
 @Composable
 private fun Speedometer(title: String, value: String, progress: Float, accent: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.BottomCenter) {
@@ -709,7 +710,7 @@ private fun Speedometer(title: String, value: String, progress: Float, accent: a
                 val top = size.height - diameter / 2f - stroke / 2f
                 val arcSize = androidx.compose.ui.geometry.Size(diameter, diameter)
                 val left = (size.width - diameter) / 2f
-                drawArc(MaterialTheme.colorScheme.surfaceVariant, 180f, 180f, false, androidx.compose.ui.geometry.Offset(left, top), arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                drawArc(trackColor, 180f, 180f, false, androidx.compose.ui.geometry.Offset(left, top), arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
                 drawArc(accent, 180f, 180f * progress.coerceIn(0f, 1f), false, androidx.compose.ui.geometry.Offset(left, top), arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
                 val angle = Math.PI * (1.0 + progress.coerceIn(0f, 1f).toDouble())
                 val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height - stroke / 2f)

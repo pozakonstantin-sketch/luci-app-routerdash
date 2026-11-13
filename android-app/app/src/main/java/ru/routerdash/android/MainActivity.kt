@@ -301,7 +301,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             "echo VPN_PROCESSES; ps | grep -E \"tailscale|sing-box|xray|openvpn|wireguard\" | grep -v grep; " +
                             "echo TAILSCALE_STATUS; if command -v tailscale >/dev/null 2>&1; then tailscale status 2>&1 | head -n 30; echo TAILSCALE_IP; tailscale ip -4 2>&1; fi; echo SING_BOX_VERSION; sing-box version 2>&1 | head -n 2; " +
                             "echo TUNNEL_INTERFACES; ip -o addr 2>/dev/null | grep -E \"tailscale|tun|wg|sing\" || true; " +
-                            "echo VPN_PROCESS_STATS; top -bn1 2>/dev/null | head -n 25; echo ROUTES; ip route 2>/dev/null | head -n 15")))
+                            "echo VPN_PROCESS_STATS; top -bn1 2>/dev/null | head -n 25; echo ROUTES; ip route 2>/dev/null | head -n 15; echo VPN_LOGS; logread 2>/dev/null | grep -iE \"tailscale|sing-box|vless|wireguard|openvpn\" | tail -n 25 || true")))
                         Screen.SERVICES -> snapshot.copy(
                             services = client.call("rc", "list"),
                             processes = runCatching { client.execReadOnly("top", listOf("-bn1")) }.getOrDefault("") +
@@ -1779,32 +1779,75 @@ private fun LogsScreen(result: JSONObject?, loadError: String?) {
 }
 @Composable
 private fun VpnScreen(status: String?, onRefresh: () -> Unit) {
-    val lines = status.orEmpty().lines().filter { it.isNotBlank() }
-    val processes = lines.filter { !it.startsWith("VPN_") && !it.startsWith("TAILSCALE_") &&
-        !it.startsWith("TUNNEL_") && !it.startsWith("ROUTES") }
+    val raw = status.orEmpty()
+    fun section(name: String, next: String? = null): String {
+        val value = raw.substringAfter(name, "")
+        return (if (next == null) value else value.substringBefore(next)).trim()
+    }
+    val processes = section("VPN_PROCESSES", "TAILSCALE_STATUS")
+    val tailscale = section("TAILSCALE_STATUS", "TAILSCALE_IP")
+    val tailscaleIp = section("TAILSCALE_IP", "SING_BOX_VERSION")
+    val singBox = section("SING_BOX_VERSION", "TUNNEL_INTERFACES")
+    val tunnels = section("TUNNEL_INTERFACES", "VPN_PROCESS_STATS")
+    val processStats = section("VPN_PROCESS_STATS", "ROUTES")
+    val routes = section("ROUTES", "VPN_LOGS")
+    val logs = section("VPN_LOGS")
+    val tailscaleLoggedOut = tailscale.contains("Logged out", true) || tailscale.contains("NeedsLogin", true)
     LazyColumn(contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("VPN и туннели", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 IconButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, null) }
             }
-            Text("Состояние Tailscale, sing-box / VLESS, VPN-процессов, туннельных интерфейсов и маршрутов.",
+            Text("Состояние Tailscale, sing-box / VLESS, туннельных интерфейсов, маршрутов и системных логов.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
-            InfoCard("Обнаруженные VPN-процессы") {
-                if (processes.isEmpty()) Text("Процессы VPN не обнаружены или нет доступа к списку процессов.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                else processes.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+            InfoCard("Tailscale · ${if (tailscaleLoggedOut) "требуется вход" else "состояние клиента"}") {
+                Text(tailscale.ifBlank { "Клиент не установлен или статус недоступен." },
+                    color = if (tailscaleLoggedOut) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodySmall)
+                if (tailscaleIp.isNotBlank()) InfoLine("Tailscale IPv4", tailscaleIp)
             }
         }
         item {
-            InfoCard("Диагностика туннелей и маршрутов") {
-                Text(status ?: "Данные ещё не получены.", style = MaterialTheme.typography.bodySmall)
+            InfoCard("sing-box · VLESS / прокси") {
+                Text(singBox.ifBlank { "Версия sing-box не получена." }, style = MaterialTheme.typography.bodySmall)
+                Text(processes.ifBlank { "Активные VPN-процессы не обнаружены." },
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        item {
+            InfoCard("Туннельные интерфейсы") {
+                Text(tunnels.ifBlank { "Интерфейсы tailscale / tun / wg не найдены." },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            }
+        }
+        item {
+            InfoCard("Нагрузка VPN-процессов · top") {
+                Text(processStats.ifBlank { "Статистика процессов недоступна." },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            }
+        }
+        item {
+            InfoCard("Маршрутизация") {
+                Text(routes.ifBlank { "Таблица маршрутов недоступна." },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            }
+        }
+        item {
+            InfoCard("Журнал VPN") {
+                Text(logs.ifBlank { "Сообщений VPN в системном журнале нет." },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
             }
         }
     }
 }
+
 
 @Composable
 private fun FirewallScreen(rules: String?, onRefresh: () -> Unit) {

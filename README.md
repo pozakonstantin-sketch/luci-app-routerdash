@@ -30,9 +30,7 @@
 ## Android-приложение
 
 Исходники Android-приложения находятся в [android-app](android-app/README.md).
-Приложение подключается к установленному RouterDash на роутере, использует
-штатную авторизацию LuCI и сохраняет только адрес роутера. Для сборки нужен
-Android Studio, JDK 17 и Android SDK Platform 36.
+Нативное приложение на Kotlin/Jetpack Compose подключается напрямую к LuCI JSON-RPC/ubus, без WebView. Для сборки нужны Android Studio, JDK 17 и Android SDK Platform 37.
 
 ## Скриншоты разделов
 

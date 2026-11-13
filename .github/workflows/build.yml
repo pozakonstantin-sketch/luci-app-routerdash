@@ -26,6 +26,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: luci-app-routerdash
+          name: routerdash-openwrt-package-apk
           path: package/dist/*.apk
           if-no-files-found: error

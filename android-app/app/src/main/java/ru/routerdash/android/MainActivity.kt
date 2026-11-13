@@ -396,32 +396,34 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                         }
                     )
                 },
-                bottomBar = if (!isExpandedLayout) ({
-                    NavigationBar {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                            val entries = listOf(
-                                Screen.OVERVIEW to Icons.Outlined.Dashboard,
-                                Screen.NETWORK to Icons.Outlined.Lan,
-                                Screen.DEVICES to Icons.Outlined.Devices,
-                                Screen.STORAGE to Icons.Outlined.Storage,
-                                Screen.PACKAGES to Icons.Outlined.Inventory2,
-                                Screen.DOWNLOADS to Icons.Outlined.Download,
-                                Screen.SERVICES to Icons.Outlined.Settings,
-                                Screen.LOGS to Icons.Outlined.Article,
-                                Screen.SETTINGS to Icons.Outlined.Tune
-                            )
-                            entries.forEach { (screen, icon) ->
-                                NavigationBarItem(
-                                    modifier = Modifier.width(76.dp),
-                                    selected = selected == screen,
-                                    onClick = { selected = screen; refresh(screen) },
-                                    icon = { Icon(icon, contentDescription = screen.title) },
-                                    label = { Text(screen.title, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall) }
+                bottomBar = {
+                    if (!isExpandedLayout) {
+                        NavigationBar {
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                                val entries = listOf(
+                                    Screen.OVERVIEW to Icons.Outlined.Dashboard,
+                                    Screen.NETWORK to Icons.Outlined.Lan,
+                                    Screen.DEVICES to Icons.Outlined.Devices,
+                                    Screen.STORAGE to Icons.Outlined.Storage,
+                                    Screen.PACKAGES to Icons.Outlined.Inventory2,
+                                    Screen.DOWNLOADS to Icons.Outlined.Download,
+                                    Screen.SERVICES to Icons.Outlined.Settings,
+                                    Screen.LOGS to Icons.Outlined.Article,
+                                    Screen.SETTINGS to Icons.Outlined.Tune
                                 )
+                                entries.forEach { (screen, icon) ->
+                                    NavigationBarItem(
+                                        modifier = Modifier.width(76.dp),
+                                        selected = selected == screen,
+                                        onClick = { selected = screen; refresh(screen) },
+                                        icon = { Icon(icon, contentDescription = screen.title) },
+                                        label = { Text(screen.title, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
                             }
                         }
                     }
-                }) else null
+                }
             ) { padding ->
                 Row(Modifier.fillMaxSize().padding(padding)) {
                     if (isExpandedLayout) {

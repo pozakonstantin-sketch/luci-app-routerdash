@@ -562,9 +562,9 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                 scope.launch {
                                     sshConnecting = true
                                     try {
-                                        val terminal = withContext(Dispatchers.IO) { SshTerminal().also { it.connect(host, port, user, pass) } }
+                                        val terminal = withContext(Dispatchers.IO) { SshTerminal(context).also { it.connect(host, port, user, pass) } }
                                         sshSession = terminal; sshConnected = true
-                                        sshOutput += "\n[SSH] Соединение установлено: $user@$host:$port\n"
+                                        sshOutput += "\n[SSH] Соединение установлено: $user@$host:$port\n[SSH] Host key: ${terminal.fingerprint}\n"
                                     } catch (e: Exception) { sshOutput += "\n[SSH ERROR] ${e.message}\n" }
                                     finally { sshConnecting = false }
                                 }
@@ -2009,7 +2009,9 @@ private fun EmptyState(message: String) {
     Text(message, Modifier.fillMaxWidth().padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-private class SshTerminal {
+private class SshTerminal(private val context: android.content.Context) {
+    var fingerprint: String = ""
+        private set
     private var session: Session? = null
     private var channel: ChannelShell? = null
     private var input: InputStream? = null
@@ -2026,6 +2028,16 @@ private class SshTerminal {
         ssh.setConfig(config)
         ssh.timeout = 10000
         ssh.connect(10000)
+        val hostKeyFingerprint = ssh.hostKey.getFingerPrint(jsch)
+        val hostKeyPrefs = context.getSharedPreferences("routerdash_ssh_hosts", 0)
+        val hostKeyId = "$host:$port"
+        val knownFingerprint = hostKeyPrefs.getString(hostKeyId, null)
+        if (knownFingerprint != null && knownFingerprint != hostKeyFingerprint) {
+            ssh.disconnect()
+            throw SecurityException("SSH host key изменился для $host:$port. Проверь роутер перед повторным подключением.")
+        }
+        if (knownFingerprint == null) hostKeyPrefs.edit().putString(hostKeyId, hostKeyFingerprint).apply()
+        fingerprint = hostKeyFingerprint
         val shell = ssh.openChannel("shell") as ChannelShell
         shell.setPtyType("xterm", 100, 30, 1000, 700)
         val shellInput = shell.inputStream

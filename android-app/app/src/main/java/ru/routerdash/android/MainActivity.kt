@@ -290,7 +290,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             val diagnostic = if (mounts.length() == 0)
                                 failures.joinToString("\n").ifBlank { "Роутер не вернул список файловых систем." }
                             else null
-                            val diskDetails = runCatching { client.execReadOnly("sh", listOf("-c", "echo BLOCK_DEVICES; for d in /sys/block/*; do [ -e \"$d/size\" ] && echo \"$(basename $d): $(cat $d/size) sectors\"; done; echo DISK_STATS; cat /proc/diskstats; echo MOUNTS; grep -E \"/mnt|/overlay|/rom\" /proc/mounts; echo DF; df -h")) }.getOrDefault("Диагностика дисков недоступна")
+                            val diskDetails = runCatching { client.execReadOnly("sh", listOf("-c", "echo BLOCK_DEVICES; ls /sys/block; echo BLOCK_SIZES_SECTORS; cat /sys/block/*/size 2>/dev/null; echo DISK_STATS; cat /proc/diskstats; echo MOUNTS; grep -E \"/mnt|/overlay|/rom\" /proc/mounts; echo DF; df -h")) }.getOrDefault("Диагностика дисков недоступна")
                             snapshot.copy(storage = mounts, storageError = diagnostic, diskDetails = diskDetails)
                         }
                         Screen.PACKAGES -> snapshot.copy(packages = client.call("rpc-sys", "packagelist"))

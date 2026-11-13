@@ -331,7 +331,7 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                         Screen.OVERVIEW -> OverviewScreen(snapshot)
                         Screen.NETWORK -> NetworkScreen(snapshot.network, snapshot.wireless)
                         Screen.DEVICES -> DevicesScreen(snapshot.devices)
-                        Screen.SERVICES -> ServicesScreen(snapshot.services)
+                        Screen.SERVICES -> ServicesScreen(snapshot.services, api) { refresh(Screen.SERVICES) }
                         Screen.LOGS -> LogsScreen(snapshot.logs)
                     }
                 }
@@ -644,16 +644,89 @@ private fun DevicesScreen(result: JSONObject?) {
 }
 
 @Composable
-private fun ServicesScreen(result: JSONObject?) {
+private fun ServicesScreen(result: JSONObject?, api: RouterApi?, onRefresh: () -> Unit) {
     val names = result?.keys()?.asSequence()?.toList()?.sorted() ?: emptyList()
+    val scope = rememberCoroutineScope()
+    var busyService by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var pendingAction by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    pendingAction?.let { (name, action) ->
+        val verb = when (action) { "start" -> "запустить"; "stop" -> "остановить"; else -> "перезапустить" }
+        AlertDialog(
+            onDismissRequest = { pendingAction = null },
+            title = { Text("Управление службой") },
+            text = { Text("Действительно $verb службу «$name»?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingAction = null
+                    scope.launch {
+                        busyService = name
+                        message = null
+                        try {
+                            withContext(Dispatchers.IO) {
+                                checkNotNull(api) { "Нет подключения к роутеру" }
+                                    .call("rc", "init", JSONObject().put("name", name).put("action", action))
+                            }
+                            message = "Команда отправлена: $name · $action"
+                            delay(900)
+                            onRefresh()
+                        } catch (e: Exception) {
+                            message = "Не удалось выполнить $action для $name: ${e.message}"
+                        } finally { busyService = null }
+                    }
+                }) { Text("Выполнить") }
+            },
+            dismissButton = { TextButton(onClick = { pendingAction = null }) { Text("Отмена") } }
+        )
+    }
+
     LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { Text("Службы OpenWrt", style = MaterialTheme.typography.headlineSmall) }
-        if (names.isEmpty()) item { EmptyState("Нет данных о службах") }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Службы OpenWrt", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onRefresh, enabled = busyService == null) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = "Обновить список")
+                }
+            }
+            if (message != null) Text(message!!, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 6.dp))
+        }
+        if (names.isEmpty()) item { EmptyState("Нет данных о службах. Проверь доступ к ubus rc.list.") }
         else items(names) { name ->
             val service = result?.optJSONObject(name) ?: JSONObject()
+            val hasRuntimeState = service.has("running")
+            val running = service.optBoolean("running")
             InfoCard(name) {
-                InfoLine("Состояние", if (service.optBoolean("running")) "Работает" else "Остановлена / неизвестно")
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Состояние", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (!hasRuntimeState) "Неизвестно" else if (running) "Работает" else "Остановлена",
+                        color = if (running) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold)
+                }
                 InfoLine("Автозапуск", if (service.optBoolean("enabled")) "Включён" else "Выключен")
+                if (hasRuntimeState) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { pendingAction = name to "start" },
+                            enabled = busyService == null && !running, modifier = Modifier.weight(1f)) {
+                            Text("Запустить")
+                        }
+                        OutlinedButton(onClick = { pendingAction = name to "stop" },
+                            enabled = busyService == null && running, modifier = Modifier.weight(1f)) {
+                            Text("Остановить")
+                        }
+                        OutlinedButton(onClick = { pendingAction = name to "restart" },
+                            enabled = busyService == null && running, modifier = Modifier.weight(1f)) {
+                            Text("Перезапуск")
+                        }
+                    }
+                } else {
+                    Text("Управление недоступно: rc.list не сообщил состояние процесса.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+                if (busyService == name) LinearProgressIndicator(Modifier.fillMaxWidth())
             }
         }
     }

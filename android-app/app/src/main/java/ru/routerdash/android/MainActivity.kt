@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -125,14 +126,14 @@ class MainActivity : FragmentActivity() {
 }
 
 private enum class Screen(val title: String) {
-    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), SERVICES("Службы"), LOGS("Журнал")
+    OVERVIEW("Обзор"), NETWORK("Сеть"), DEVICES("Устройства"), STORAGE("Диски"), PACKAGES("Пакеты"), DOWNLOADS("Загрузки"), SERVICES("Службы"), LOGS("Журнал")
 }
 private data class TrafficPoint(val rx: Long, val tx: Long)
 private data class Snapshot(
     val board: JSONObject? = null, val info: JSONObject? = null,
     val network: JSONObject? = null, val wireless: JSONObject? = null, val devices: JSONObject? = null,
     val services: JSONObject? = null, val logs: JSONObject? = null,
-    val storage: JSONArray? = null,
+    val storage: JSONArray? = null, val packages: JSONObject? = null, val downloads: JSONObject? = null,
     val cpuRaw: String? = null, val networkDevices: JSONObject? = null,
     val cpuPercent: Int? = null, val rxRate: Long? = null, val txRate: Long? = null,
     val trafficHistory: List<TrafficPoint> = emptyList(),
@@ -216,6 +217,8 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                             snapshot.copy(devices = combined)
                         }
                         Screen.STORAGE -> snapshot.copy(storage = client.callArray("luci", "getMountPoints"))
+                        Screen.PACKAGES -> snapshot.copy(packages = client.call("rpc-sys", "packagelist"))
+                        Screen.DOWNLOADS -> snapshot.copy(downloads = client.aria2Overview())
                         Screen.SERVICES -> snapshot.copy(services = client.call("rc", "list"))
                         Screen.LOGS -> snapshot.copy(logs = client.call("log", "read", JSONObject().put("lines", 300)))
                     }
@@ -340,11 +343,14 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                 },
                 bottomBar = {
                     NavigationBar {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                         val entries = listOf(
                             Screen.OVERVIEW to Icons.Outlined.Dashboard,
                             Screen.NETWORK to Icons.Outlined.Lan,
                             Screen.DEVICES to Icons.Outlined.Devices,
                             Screen.STORAGE to Icons.Outlined.Storage,
+                            Screen.PACKAGES to Icons.Outlined.Inventory2,
+                            Screen.DOWNLOADS to Icons.Outlined.Download,
                             Screen.SERVICES to Icons.Outlined.Settings,
                             Screen.LOGS to Icons.Outlined.Article
                         )
@@ -355,6 +361,7 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                                 icon = { Icon(icon, contentDescription = screen.title) },
                                 label = { Text(screen.title, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall) }
                             )
+                        }
                         }
                     }
                 }
@@ -370,6 +377,8 @@ private fun RouterDashApp(onEnableBiometric: () -> Unit) {
                         Screen.NETWORK -> NetworkScreen(snapshot.network, snapshot.wireless)
                         Screen.DEVICES -> DevicesScreen(snapshot.devices, snapshot.wireless)
                         Screen.STORAGE -> StorageScreen(snapshot.storage) { refresh(Screen.STORAGE) }
+                        Screen.PACKAGES -> PackagesScreen(snapshot.packages) { refresh(Screen.PACKAGES) }
+                        Screen.DOWNLOADS -> DownloadsScreen(snapshot.downloads, api) { refresh(Screen.DOWNLOADS) }
                         Screen.SERVICES -> ServicesScreen(snapshot.services, api) { refresh(Screen.SERVICES) }
                         Screen.LOGS -> LogsScreen(snapshot.logs)
                     }
@@ -800,6 +809,187 @@ private fun StorageScreen(mounts: JSONArray?, onRefresh: () -> Unit) {
     }
 }
 
+private fun packageDescription(name: String): String {
+    val exact = mapOf(
+        "adblock" to "Блокировка рекламы и трекеров на уровне DNS.",
+        "aria2" to "Многопоточный загрузчик файлов по HTTP, HTTPS, FTP и BitTorrent.",
+        "block-mount" to "Автоматическое подключение внешних накопителей.",
+        "ca-bundle" to "Набор доверенных корневых сертификатов для HTTPS.",
+        "curl" to "Утилита для HTTP-запросов и загрузки данных из сети.",
+        "dnsmasq" to "Локальный DNS-сервер и DHCP для домашних устройств.",
+        "dropbear" to "Лёгкий SSH-сервер для удалённого доступа к роутеру.",
+        "firewall4" to "Межсетевой экран OpenWrt на базе nftables.",
+        "htop" to "Интерактивный просмотр процессов и нагрузки системы.",
+        "iperf3" to "Измерение пропускной способности сети.",
+        "kmod-usb-storage" to "Драйвер поддержки USB-накопителей.",
+        "luci" to "Веб-интерфейс управления OpenWrt.",
+        "luci-app-aria2" to "Страница настройки и управления загрузчиком aria2 в LuCI.",
+        "luci-app-firewall" to "Управление правилами межсетевого экрана через LuCI.",
+        "luci-app-opkg" to "Управление пакетами через веб-интерфейс LuCI.",
+        "luci-app-sqm" to "Настройка SQM для уменьшения задержек и bufferbloat.",
+        "luci-app-ttyd" to "Доступ к терминалу роутера из браузера.",
+        "luci-proto-wireguard" to "Поддержка настройки WireGuard в LuCI.",
+        "luci-theme-argon" to "Тема оформления веб-интерфейса LuCI.",
+        "nano" to "Простой текстовый редактор в терминале.",
+        "openssh-sftp-server" to "Поддержка передачи файлов по SFTP через SSH.",
+        "rpcd" to "Служба RPC, предоставляющая системные функции через ubus.",
+        "samba4-server" to "Общий доступ к файлам по SMB/CIFS для Windows и телевизоров.",
+        "sing-box" to "Универсальный сетевой прокси-клиент и маршрутизатор трафика.",
+        "tailscale" to "Защищённая mesh-VPN сеть для доступа к устройствам без белого IP.",
+        "tcpdump" to "Захват и анализ сетевых пакетов.",
+        "wget-ssl" to "Загрузка файлов по HTTP и HTTPS из командной строки.",
+        "wireguard-tools" to "Утилиты настройки и управления VPN WireGuard.",
+        "wpad" to "Компонент Wi-Fi с поддержкой WPA/WPA2/WPA3."
+    )
+    exact[name]?.let { return it }
+    return when {
+        name.startsWith("luci-i18n-") -> "Русский или другой языковой перевод для соответствующего приложения LuCI."
+        name.startsWith("luci-app-") -> "Дополнительная страница или функция управления OpenWrt в веб-интерфейсе LuCI."
+        name.startsWith("luci-proto-") -> "Поддержка настройки сетевого протокола в интерфейсе LuCI."
+        name.startsWith("luci-") -> "Компонент веб-интерфейса LuCI: страницы, библиотеки или системная интеграция."
+        name.startsWith("kmod-") -> "Модуль ядра Linux: драйвер или поддержка соответствующего оборудования и функции."
+        name.startsWith("lib") -> "Программная библиотека, от которой зависят другие приложения и системные службы."
+        name.startsWith("odhcp") -> "Компонент DHCPv4/DHCPv6 и IPv6-автоконфигурации сети."
+        name.startsWith("ppp") -> "Компонент протокола PPP для соответствующих WAN-подключений."
+        name.startsWith("iptables") || name.startsWith("nftables") -> "Инструменты фильтрации сетевого трафика и настройки firewall."
+        name.startsWith("dns") -> "Компонент разрешения DNS-имён и сетевой службы."
+        name.startsWith("busybox") -> "Набор базовых Unix-утилит для командной строки OpenWrt."
+        name.startsWith("base-") || name in listOf("procd", "netifd", "uci", "ubus", "ubox", "fstools") ->
+            "Базовый системный компонент OpenWrt; обеспечивает работу и настройку роутера."
+        else -> "Системный пакет OpenWrt. Точное назначение зависит от компонента; название можно использовать для поиска документации."
+    }
+}
+
+@Composable
+private fun PackagesScreen(result: JSONObject?, onRefresh: () -> Unit) {
+    var filter by rememberSaveable { mutableStateOf("") }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val packages = remember(result) {
+        val map = result?.optJSONObject("packages") ?: JSONObject()
+        map.keys().asSequence().map { name -> name to map.optString(name) }.sortedBy { it.first }.toList()
+    }
+    val filtered = remember(packages, filter) {
+        packages.filter { (name, version) ->
+            filter.isBlank() || name.contains(filter, true) || packageDescription(name).contains(filter, true) ||
+                version.contains(filter, true)
+        }
+    }
+    LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Установленные пакеты", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, contentDescription = "Обновить") }
+            }
+            Text("${filtered.size} из ${packages.size} пакетов · нажми на пакет, чтобы раскрыть описание",
+                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(filter, { filter = it }, Modifier.fillMaxWidth(),
+                label = { Text("Поиск по названию и назначению") }, singleLine = true)
+        }
+        if (result == null) item { EmptyState("Не удалось получить список пакетов. Проверь доступ rpc-sys.packagelist.") }
+        else if (filtered.isEmpty()) item { EmptyState("Пакеты не найдены.") }
+        else items(filtered, key = { it.first }) { (name, version) ->
+            ElevatedCard(Modifier.fillMaxWidth(), onClick = { expanded = !expanded }) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text(name, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                            contentDescription = if (expanded) "Свернуть" else "Описание")
+                    }
+                    Text("Версия: ${version.ifBlank { "—" }}", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (expanded) Text(packageDescription(name), style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.secondary)
+                    else Text(packageDescription(name), maxLines = 2, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadsScreen(result: JSONObject?, api: RouterApi?, onRefresh: () -> Unit) {
+    var uri by rememberSaveable { mutableStateOf("") }
+    var adding by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val global = result?.optJSONObject("global")
+    val tasks = remember(result) {
+        val rows = mutableListOf<Pair<String, JSONObject>>()
+        listOf("active", "waiting", "stopped").forEach { key ->
+            val array = result?.optJSONArray(key) ?: return@forEach
+            for (i in 0 until array.length()) {
+                val task = array.optJSONObject(i) ?: continue
+                rows += (if (key == "active") "active" else if (key == "waiting") "waiting" else task.optString("status", "stopped")) to task
+            }
+        }
+        rows
+    }
+    LazyColumn(contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Загрузки aria2", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onRefresh) { Icon(Icons.Outlined.Refresh, contentDescription = "Обновить") }
+            }
+            if (global != null) {
+                InfoCard("Состояние загрузчика") {
+                    InfoLine("Загружается", formatRate(global.optString("downloadSpeed").toLongOrNull() ?: 0L))
+                    InfoLine("Отдаётся", formatRate(global.optString("uploadSpeed").toLongOrNull() ?: 0L))
+                    InfoLine("Активные", global.optString("numActive", "0"))
+                    InfoLine("В очереди", global.optString("numWaiting", "0"))
+                    InfoLine("Остановлены", global.optString("numStopped", "0"))
+                }
+            }
+            InfoCard("Добавить загрузку") {
+                OutlinedTextField(uri, { uri = it }, Modifier.fillMaxWidth(),
+                    label = { Text("HTTP(S), FTP или magnet-ссылка") }, singleLine = true)
+                Button(
+                    enabled = uri.isNotBlank() && !adding && api != null,
+                    onClick = {
+                        val target = uri.trim()
+                        adding = true
+                        message = null
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) { api?.aria2AddUri(target) }
+                                uri = ""
+                                message = "Загрузка добавлена."
+                                onRefresh()
+                            } catch (e: Exception) { message = e.message ?: "Не удалось добавить загрузку" }
+                            finally { adding = false }
+                        }
+                    }
+                ) {
+                    if (adding) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Outlined.Download, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Добавить")
+                }
+                message?.let { Text(it, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall) }
+            }
+        }
+        if (result == null) item { EmptyState("aria2 недоступен. Проверь, что служба запущена и JSON-RPC доступен на порту 6800.") }
+        else if (tasks.isEmpty()) item { EmptyState("Активных и завершённых загрузок нет.") }
+        else items(tasks, key = { it.second.optString("gid") }) { (status, task) ->
+            val total = task.optString("totalLength").toLongOrNull() ?: 0L
+            val done = task.optString("completedLength").toLongOrNull() ?: 0L
+            val percent = if (total > 0L) (done * 100L / total).toInt().coerceIn(0, 100) else if (status == "complete") 100 else 0
+            val files = task.optJSONArray("files")
+            val file = files?.optJSONObject(0)
+            val name = file?.optString("path")?.takeIf { !it.isNullOrBlank() }
+                ?: task.optString("bittorrent", "").ifBlank { task.optString("gid", "Загрузка") }
+            InfoCard(name.substringAfterLast('/')) {
+                InfoLine("Состояние", status)
+                LinearProgressIndicator(progress = { percent / 100f }, Modifier.fillMaxWidth())
+                InfoLine("Прогресс", "$percent% · ${formatBytes(done)} / ${formatBytes(total)}")
+                if (status == "active") InfoLine("Скорость", formatRate(task.optString("downloadSpeed").toLongOrNull() ?: 0L))
+                if (task.optString("errorMessage").isNotBlank()) Text(task.optString("errorMessage"),
+                    color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
 @Composable
 private fun ServicesScreen(result: JSONObject?, api: RouterApi?, onRefresh: () -> Unit) {
     val names = result?.keys()?.asSequence()?.toList()?.sorted() ?: emptyList()
@@ -1097,6 +1287,46 @@ private class RouterApi(val baseUrl: String) {
             return result.optJSONObject(1) ?: JSONObject()
         }
         return result as? JSONObject ?: JSONObject()
+    }
+
+    fun aria2AddUri(uri: String) {
+        val base = URI(baseUrl)
+        val endpoint = URI(base.scheme, null, base.host, 6800, "/jsonrpc", null, null).toASCIIString()
+        val params = JSONArray().put(JSONArray().put(uri))
+        val body = JSONObject().put("jsonrpc", "2.0").put("id", System.currentTimeMillis())
+            .put("method", "aria2.addUri").put("params", params).toString()
+        val request = Request.Builder().url(endpoint).post(body.toRequestBody(mediaType)).build()
+        http.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IllegalStateException("aria2: HTTP ${response.code}")
+            val json = JSONObject(text)
+            if (json.has("error")) throw IllegalStateException("aria2: " +
+                (json.optJSONObject("error")?.optString("message") ?: "ошибка добавления"))
+        }
+    }
+
+    fun aria2Overview(): JSONObject {
+        fun ariaCall(method: String, params: JSONArray = JSONArray()): Any? {
+            val base = URI(baseUrl)
+            val endpoint = URI(base.scheme, null, base.host, 6800, "/jsonrpc", null, null).toASCIIString()
+            val body = JSONObject().put("jsonrpc", "2.0").put("id", System.currentTimeMillis())
+                .put("method", method).put("params", params).toString()
+            val request = Request.Builder().url(endpoint).post(body.toRequestBody(mediaType)).build()
+            http.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IllegalStateException("aria2: HTTP ${response.code}")
+                val json = JSONObject(text)
+                if (json.has("error")) throw IllegalStateException("aria2: " +
+                    (json.optJSONObject("error")?.optString("message") ?: "ошибка JSON-RPC"))
+                return json.opt("result")
+            }
+        }
+        val global = ariaCall("aria2.getGlobalStat") as? JSONObject ?: JSONObject()
+        val active = ariaCall("aria2.tellActive") as? JSONArray ?: JSONArray()
+        val waiting = ariaCall("aria2.tellWaiting", JSONArray().put(0).put(50)) as? JSONArray ?: JSONArray()
+        val stopped = ariaCall("aria2.tellStopped", JSONArray().put(0).put(50)) as? JSONArray ?: JSONArray()
+        return JSONObject().put("global", global).put("active", active)
+            .put("waiting", waiting).put("stopped", stopped)
     }
 
     private fun post(path: String, body: String): String {

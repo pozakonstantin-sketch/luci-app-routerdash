@@ -240,7 +240,7 @@ private fun OverviewScreen(s: Snapshot) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 GaugeCard("RAM", if (total > 0) "${(ramPercent * 100).toInt()}%" else "—",
                     if (total > 0) ramPercent else 0f, "Используется", Modifier.weight(1f), MaterialTheme.colorScheme.primary)
-                InfoCard("Нагрузка") {
+                InfoCard("Нагрузка", Modifier.weight(1f)) {
                     Text(load, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.secondary)
                     Text("Load average · 1 мин", style = MaterialTheme.typography.labelSmall,
@@ -408,8 +408,8 @@ private fun MetricCard(title: String, value: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun InfoCard(title: String, content: @Composable ColumnScope.() -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
+private fun InfoCard(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    ElevatedCard(modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             content()

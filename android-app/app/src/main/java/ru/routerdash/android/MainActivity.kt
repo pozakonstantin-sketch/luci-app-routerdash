@@ -774,6 +774,7 @@ private fun OverviewScreen(s: Snapshot) {
     }
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
+        userScrollEnabled = false,
         contentPadding = PaddingValues(horizontal = 3.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)

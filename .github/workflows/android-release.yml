@@ -72,6 +72,17 @@ jobs:
           test -s "$AAB"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
           jarsigner -verify -certs "$AAB"
+          curl --fail --location --silent --show-error \
+            "https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar" \
+            --output "$RUNNER_TEMP/bundletool.jar"
+          java -jar "$RUNNER_TEMP/bundletool.jar" validate --bundle="$AAB"
+          APK_CERT=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" | \
+            awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          AAB_CERT=$(keytool -printcert -jarfile "$AAB" | \
+            awk -F': ' '/SHA256:/ {print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          test -n "$APK_CERT" && test -n "$AAB_CERT"
+          test "$APK_CERT" = "$AAB_CERT" || { echo "::error::APK and AAB signing certificates do not match"; exit 1; }
+          echo "APK/AAB signing certificate SHA-256: $APK_CERT"
           mkdir -p release-artifacts
           cp "$APK" "$AAB" release-artifacts/
           cd release-artifacts

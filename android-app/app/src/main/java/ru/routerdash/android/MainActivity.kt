@@ -2141,7 +2141,10 @@ internal class SshTerminal(private val context: android.content.Context) {
         val jsch = JSch()
         val prefs = context.getSharedPreferences("routerdash_ssh_hosts", 0)
         val hostKeyId = "${host.lowercase()}:$port"
-        val expectedKey = prefs.getString(hostKeyId, null)?.let { Base64.getDecoder().decode(it) }
+        // Older app builds stored only a fingerprint string. Treat those entries as untrusted and ask for explicit re-approval.
+        val expectedKey = prefs.getString(hostKeyId, null)?.let { encoded ->
+            runCatching { Base64.getDecoder().decode(encoded) }.getOrNull()
+        }
         val repository = PinnedHostKeyRepository(expectedKey)
         jsch.hostKeyRepository = repository
         val ssh = jsch.getSession(username, host, port)

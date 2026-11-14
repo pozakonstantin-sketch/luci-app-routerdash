@@ -48,9 +48,13 @@ import com.jcraft.jsch.ChannelShell
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.Session
+import com.jcraft.jsch.HostKey
+import com.jcraft.jsch.HostKeyRepository
+import com.jcraft.jsch.UserInfo
 import java.io.InputStream
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
+import java.util.Base64
 
 class MainActivity : FragmentActivity() {
     private val securityPrefs by lazy { getSharedPreferences("routerdash_security", MODE_PRIVATE) }
@@ -184,6 +188,7 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
     var sshConnected by remember { mutableStateOf(false) }
     var sshConnecting by remember { mutableStateOf(false) }
     var sshOutput by remember { mutableStateOf("RouterDash SSH · готов к подключению\n") }
+    var sshTrustPrompt by remember { mutableStateOf<PendingSshTrust?>(null) }
 
     fun refresh(screen: Screen = selected) {
         val client = api ?: return
@@ -544,6 +549,20 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                             Text(error!!, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
                         }
                     }
+                    sshTrustPrompt?.let { pending ->
+                        AlertDialog(
+                            onDismissRequest = { sshTrustPrompt = null },
+                            title = { Text("Подтвердить SSH host key") },
+                            text = { Text("Новый ключ сервера ${pending.host}:${pending.port}. Сверь отпечаток с доверенным источником на роутере. Пароль ещё не отправлялся.\n\n${pending.fingerprint}\n\nНе подтверждай ключ, если не можешь проверить его подлинность.") },
+                            confirmButton = { TextButton(onClick = {
+                                context.getSharedPreferences("routerdash_ssh_hosts", 0).edit()
+                                    .putString("${pending.host.lowercase()}:${pending.port}", pending.keyBase64).apply()
+                                sshTrustPrompt = null
+                                sshOutput += "\n[SSH] Отпечаток сохранён. Повтори подключение.\n"
+                            }) { Text("Доверять ключу") } },
+                            dismissButton = { TextButton(onClick = { sshTrustPrompt = null }) { Text("Отмена") } }
+                        )
+                    }
                     when (selected) {
                         Screen.OVERVIEW -> OverviewScreen(snapshot)
                         Screen.NETWORK -> NetworkScreen(snapshot.network, snapshot.wireless)
@@ -571,6 +590,9 @@ private fun RouterDashApp(biometricUnlockSignal: Int, onEnableBiometric: (() -> 
                                         val terminal = withContext(Dispatchers.IO) { SshTerminal(context).also { it.connect(host, port, user, pass) } }
                                         sshSession = terminal; sshConnected = true
                                         sshOutput += "\n[SSH] Соединение установлено: $user@$host:$port\n[SSH] Host key: ${terminal.fingerprint}\n"
+                                    } catch (e: UnknownSshHostKeyException) {
+                                        sshTrustPrompt = PendingSshTrust(host, port, e.fingerprint, e.keyBase64)
+                                        sshOutput += "\n[SSH] Новый ключ не принят автоматически. Требуется подтверждение отпечатка.\n"
                                     } catch (e: Exception) { sshOutput += "\n[SSH ERROR] ${e.message}\n" }
                                     finally { sshConnecting = false }
                                 }
@@ -2084,6 +2106,29 @@ private fun EmptyState(message: String) {
     Text(message, Modifier.fillMaxWidth().padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
+private data class PendingSshTrust(val host: String, val port: Int, val fingerprint: String, val keyBase64: String)
+
+private class UnknownSshHostKeyException(val fingerprint: String, val keyBase64: String) : SecurityException("Новый SSH host key требует подтверждения: $fingerprint")
+
+private class PinnedHostKeyRepository(private val expectedKey: ByteArray?) : HostKeyRepository {
+    var observedKey: ByteArray? = null
+        private set
+    override fun check(host: String, key: ByteArray): Int {
+        observedKey = key.clone()
+        return when {
+            expectedKey == null -> HostKeyRepository.NOT_INCLUDED
+            expectedKey.contentEquals(key) -> HostKeyRepository.OK
+            else -> HostKeyRepository.CHANGED
+        }
+    }
+    override fun add(hostkey: HostKey?, ui: UserInfo?) = Unit
+    override fun remove(host: String?, type: String?) = Unit
+    override fun remove(host: String?, type: String?, key: ByteArray?) = Unit
+    override fun getHostKey(): Array<HostKey> = emptyArray()
+    override fun getHostKey(host: String?, type: String?): Array<HostKey> = emptyArray()
+    override fun getKnownHostsRepositoryID(): String = "RouterDash pinned SSH keys"
+}
+
 internal class SshTerminal(private val context: android.content.Context) {
     var fingerprint: String = ""
         private set
@@ -2094,25 +2139,34 @@ internal class SshTerminal(private val context: android.content.Context) {
 
     fun connect(host: String, port: Int, username: String, password: String) {
         val jsch = JSch()
+        val prefs = context.getSharedPreferences("routerdash_ssh_hosts", 0)
+        val hostKeyId = "${host.lowercase()}:$port"
+        val expectedKey = prefs.getString(hostKeyId, null)?.let { Base64.getDecoder().decode(it) }
+        val repository = PinnedHostKeyRepository(expectedKey)
+        jsch.hostKeyRepository = repository
         val ssh = jsch.getSession(username, host, port)
         ssh.setPassword(password)
         val config = java.util.Properties().apply {
-            put("StrictHostKeyChecking", "no")
+            put("StrictHostKeyChecking", "yes")
             put("PreferredAuthentications", "password,keyboard-interactive")
         }
         ssh.setConfig(config)
         ssh.timeout = 10000
-        ssh.connect(10000)
-        val hostKeyFingerprint = ssh.hostKey.getFingerPrint(jsch)
-        val hostKeyPrefs = context.getSharedPreferences("routerdash_ssh_hosts", 0)
-        val hostKeyId = "$host:$port"
-        val knownFingerprint = hostKeyPrefs.getString(hostKeyId, null)
-        if (knownFingerprint != null && knownFingerprint != hostKeyFingerprint) {
+        try {
+            ssh.connect(10000)
+        } catch (e: Exception) {
             ssh.disconnect()
-            throw SecurityException("SSH host key изменился для $host:$port. Проверь роутер перед повторным подключением.")
+            val observed = repository.observedKey
+            if (observed != null && expectedKey == null) {
+                val fp = HostKey(host, observed).getFingerPrint(jsch)
+                throw UnknownSshHostKeyException(fp, Base64.getEncoder().encodeToString(observed))
+            }
+            if (observed != null && expectedKey != null && !expectedKey.contentEquals(observed)) {
+                throw SecurityException("SSH host key изменился для $host:$port. Подключение заблокировано.")
+            }
+            throw e
         }
-        if (knownFingerprint == null) hostKeyPrefs.edit().putString(hostKeyId, hostKeyFingerprint).apply()
-        fingerprint = hostKeyFingerprint
+        fingerprint = ssh.hostKey.getFingerPrint(jsch)
         val shell = ssh.openChannel("shell") as ChannelShell
         shell.setPtyType("xterm", 100, 30, 1000, 700)
         val shellInput = shell.inputStream
